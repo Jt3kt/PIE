@@ -11,14 +11,14 @@ Enables direct query to Microsoft Advance Threat Protection UrlTrace cmdlet.  Th
 
 URL click reports can be retrieved and populated into SIEM case reports.
 
-This script is designed to integrated directly into the LogRhythm SIEM as a [SmartResponse](/SmartResponse).
+This script is designed to integrated directly into the LogRhythm SIEM as a SmartResponse.
 
 
 
 
 ## [Usage]
 
-#### Run the following command for a list of options associated with this script:
+#### The following are examples for 365_SafeTracer:
 
     PS C:\> .\365_SafeTracer.ps1 -recipientlist "user1@example.com, user2@example.com"
 		
