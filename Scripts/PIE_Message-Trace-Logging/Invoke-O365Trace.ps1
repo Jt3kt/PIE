@@ -36,7 +36,7 @@ $banner = @"
 
 # Mask errors
 $ErrorActionPreference= 'silentlycontinue'
-$VerbosePreference= 'continue'
+#$VerbosePreference= 'continue'
 
 # ================================================================================
 # DEFINE GLOBAL PARAMETERS AND CAPTURE CREDENTIALS
@@ -394,6 +394,7 @@ try {
 } Catch {
     Write-Error "Access Denied..."
     Logger -logSev "e" -Message "Office 365 connection Access Denied"
+    Exit 1
     Break;
 }
 
@@ -526,16 +527,6 @@ if ( $log -eq $true) {
         $newReports | ForEach-Object {
             # Setup Object for JSON output
             $jsonPie = New-Object -TypeName psobject -Property @{}
-            #Add $newReport to $phishLog
-            Logger -logSev "i" -Message "Adding new report to phishLog for recipient $($_.RecipientAddress)"
-            Try {
-                echo "`"$($_.MessageTraceID)`",`"$($_.Received)`",`"$($_.SenderAddress)`",`"$($_.RecipientAddress)`",`"$($_.FromIP)`",`"$($_.ToIP)`",`"$($_.Subject)`",`"$($_.Status)`",`"$($_.Size)`",`"$($_.MessageID)`"" | Out-File $phishLog -Encoding utf8 -Append
-            } Catch {
-                Logger -logSev "e" -Message "Unable to write to: $phishLog"
-                Logger -logSev "s" -Message "PIE Execution Halting"
-                Remove-PSSession $Session
-                exit 1
-            }
             # Track the user who reported the message
             $reportedBy = $($_.SenderAddress)
             $reportedSubject = $($_.Subject)
@@ -611,6 +602,16 @@ if ( $log -eq $true) {
 
                     if ($($message.Subject) -eq $reportedSubject -OR $msubject -eq $reportedSubject) {
                         Logger -logSev "i" -Message "Outlook message.subject matched reported message Subject"
+                        #Add $newReport to $phishLog
+                        Logger -logSev "i" -Message "Adding new report to phishLog for recipient $($_.RecipientAddress)"
+                        Try {
+                            echo "`"$($_.MessageTraceID)`",`"$($_.Received)`",`"$($_.SenderAddress)`",`"$($_.RecipientAddress)`",`"$($_.FromIP)`",`"$($_.ToIP)`",`"$($_.Subject)`",`"$($_.Status)`",`"$($_.Size)`",`"$($_.MessageID)`"" | Out-File $phishLog -Encoding utf8 -Append
+                        } Catch {
+                            Logger -logSev "e" -Message "Unable to write to: $phishLog"
+                            Logger -logSev "s" -Message "PIE Execution Halting"
+                            Remove-PSSession $Session
+                            exit 1
+                        }
                         $msubject = $message.subject
                         $mBody = $message.body
                         Logger -logSev "s" -Message "Parsing attachments"
@@ -734,7 +735,7 @@ if ( $log -eq $true) {
                                             Logger -logSev "e" -Message "Unable to save Attachment to destination: $tmpFolder\attachments\$attachmentName"
                                         }
                                         if ($saveStatus -eq $true) {
-                                            if ($attachment -match $interestingFilesRegex -and $attachment -NotLike "*.msg*" -and $attachment -NotLike "*.eml*" ) {
+                                            if ($attachmentName -match $interestingFilesRegex -and $attachmentName -NotLike "*.msg*" -and $attachmentName -NotLike "*.eml*" ) {
                                                 Start-Sleep 1
                                                 $fileHashes += @(Get-FileHash -Path "$attachmentFull" -Algorithm SHA256)
                                                 Logger -logSev "i" -Message "Adding hash for $attachmentFull to variable fileHashes"
@@ -1392,7 +1393,6 @@ if ( $log -eq $true) {
                 Logger -logSev "s" -Message "Creation of Summary"
                 $summary = @"
 ============================================================
-
 Phishing Attack Reported by: $reportedBy
 Reported on:                 $date
 Spammer:                     $spammer
@@ -1401,7 +1401,6 @@ Subject:                     $subject
 Messages Sent:              $messageCount
 Messages Delivered:         $deliveredMessageCount
 Case Folder:                 $caseID
-
 ============================================================
 "@
     
@@ -2631,16 +2630,16 @@ Case Folder:                 $caseID
                 if ( $safelinkTrace -eq $true ) {
                     if ( $scanLinks.length -gt 0 ) {
                         Logger -logSev "s" -Message "Begin Safelink Trace"
-                        $sltStatus = "== 365 Safelink Trace ==\r\n"
                         $sltClear = $null
+                        $sltStatus = "== 365 Safelink Trace ==\r\n"
                         $scanLinks | ForEach-Object {
 
                             Logger -logSev "d" -Message "365 Safelinks - Inspecting URL: $_"
                             $sltResults = Get-UrlTrace -UrlOrDomain "$_"
-
                             if ( $sltResults ) {
+                                $sltStatus += "Trace report for URL: \r\n$_\r\n"
                                 $sltResults | ForEach-Object {
-                                    $sltStatus += "URL: $($_.Url) \r\nStatus: Clicked | Clicked On: $($_.Clicked)UTC | By recipient $($_.RecipientAddress)\r\n\r\n"
+                                    $sltStatus += "Clicked On: $($_.Clicked) UTC | By recipient $($_.RecipientAddress)\r\n"
                                     Logger -logSev "s" -Message "365 Safelinks - URL: $($_.Url) Date: $($_.Clicked) UTC By recipient $($_.RecipientAddress)"
                                 }
                             } else {
@@ -2649,14 +2648,16 @@ Case Folder:                 $caseID
                             }
                             $sltResults = $null
                         }
-                        $sltStatus += "No access reported:\r\n$sltClear\r\n"
+                        if ($sltClear) {
+                            $sltStatus += "\r\nNo access recorded for the following URLs:\r\n$sltClear\r\n" 
+                        }
                         & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$sltStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
 
                         Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "Safelink Trace Status:" >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                        Write-Output $slStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
+                        Write-Output $($slStatus.Replace("\r\n","`r`n")) >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
 
                         Logger -logSev "s" -Message "End Safelink Trace"
@@ -2756,10 +2757,10 @@ Case Folder:                 $caseID
                 })
 
                 # Build Json Metadata
+                #links=[string[]](Get-Content "$tmpFolder\links.txt");
                 $jsonPie | Add-Member -ErrorAction Continue -Name 'meta' -MemberType NoteProperty -Value (New-Object -TypeName psobject -Property @{
                     subjects=[string[]]($subjects);
                     recipients=[string[]]($recipients);
-                    links=[string[]](Get-Content "$tmpFolder\links.txt");
                     body=$messageBody;
                     headers=$headers;
                 })
@@ -2859,6 +2860,13 @@ Case Folder:                 $caseID
             $shortURL = $null
             $shortList = $null
         }
+        
+        #Close Outlook
+        $processOutlook = Get-Process OUTLOOK
+        if ($processOutlook) {
+            Stop-Process $processOutlook.Id
+        }
+
     }
 }
 
