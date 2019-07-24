@@ -11,11 +11,11 @@
 
 INSTALL:
 
-    Review lines 43 through 100
+    Review lines 43 through 110
         Add credentials under each specified section - Office 365 Connectivity and LogRhythm Case API Integration
         Define the folder where you will deploy the Invoke-O365MessageTrace.ps1 script from
 
-    Review Lines 103 through 174
+    Review Lines 111 through 187
         For each setting that you would like to enable, change the value from $false to $true
         For each enabled third party plugin, set the API key and other required paramters
 
@@ -235,7 +235,7 @@ $vtRunTime = $null
 # Email Parsing Varibles
 $boringFiles = @('jpg', 'png', 'ico', 'tif')    
 $boringFilesRegex = [string]::Join('|', $boringFiles)
-$interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'js', 'rpm', 'bat', 'cmd')
+$interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'htm', 'js', 'rpm', 'bat', 'cmd')
 $interestingFilesRegex = [string]::Join('|', $interestingFiles)
 
 

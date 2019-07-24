@@ -56,13 +56,13 @@ This script handles the message trace logging, dynamic analytics, and automated 
 
 5) Open the Invoke-O365Trace.ps1 script and review the contents. You will need to add credentials and API keys where desired.
 
-    Review lines 43 through 100
+    Review lines 43 through 110
     
         Add credentials under each specified section (as documented in step 4)
         Review Office 365 Connectivity and LogRhythm Case API Integration
         Define the folder where you will deploy the Invoke-O365MessageTrace.ps1 script from ($logFolder variable)
 
-    Review Lines 103 through 174
+    Review Lines 111 through 187
 
         For each setting that you would like to enable, change the value from $false to $true
         For each enabled third party plugin, set the API key and other required paramters
@@ -160,6 +160,10 @@ Domain Analytics and Risk Analysis
 
 LogRhythm Case and List API integration
 
+[Microsoft Advance Threat Protection](https://products.office.com/en-us/exchange/advance-threat-protection)
+
+UrlTrace to identify users who click on ATP SafeLinks
+
 [OpenDNS](https://www.opendns.com/)
 
 Domain Analytics and Risk Analysis
@@ -187,7 +191,7 @@ And more coming soon...
 
 The /logs/ directory will populate every time the Invoke-script is run. By default, this is configured to run evey 15-minutes.
 
-PIE 3.0 includes a new log that reports the steps and actions taken on execution located under /logs/pierun.txt.  It's recommended to make use of a utility such as [BareTail](https://www.baremetalsoft.com/baretail/) when reviewing or troubleshooting PIE execution.
+PIE 3.0 introduces a new log that reports the steps and actions taken on execution located under /logs/pierun.txt.  It's recommended to make use of a utility such as [BareTail](https://www.baremetalsoft.com/baretail/) when reviewing or troubleshooting PIE execution.
 
 If you configure the script to handle phishing attacks, you will be presented with a 'cases' folder. Each phishing attack will be given a folder, and associated evidence will be stored within If you enable LogRhythm Case integration, new cases will be created within the SIEM, allowing for collaboration, tracking, and automated metrics.
 
