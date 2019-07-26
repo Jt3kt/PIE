@@ -2862,9 +2862,17 @@ Case Folder:                 $caseID
         }
         
         #Close Outlook
+        Logger -logSev "s" -Message "Closing Outlook"
         $processOutlook = Get-Process OUTLOOK
         if ($processOutlook) {
-            Stop-Process $processOutlook.Id
+            Logger -logSev "i" -Message "Stopping Outlook PID:$($processOutlook.Id)"
+            Try {
+                Stop-Process $processOutlook.Id -Force
+            } Catch {
+                Logger -logSev "e" -Message "Unable Stop-Process for Outlook PID:$($processOutlook.Id)"
+            }
+        } else {
+            Logger -logSev "i" -Message "Unable to identify Outlook PID.  Is Outlook running?"
         }
 
     }
