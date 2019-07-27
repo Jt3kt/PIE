@@ -569,10 +569,10 @@ if ( $log -eq $true) {
             }
             Logger -logSev "s" -Message "End AutoQuarantine block"  
 
-            Logger -logSev "s" -Message "Begin Phishing Analysis block"  
+            Logger -logSev "s" -Message "Begin Phishing Analysis block"
+            Logger -logSev "d" -Message "Outlook Inbox Message Count: $phishCount"
             # Analyze reported phishing messages, and scrape any other unreported messages    
             if ( $phishCount -gt 0 ) {
-                Logger -logSev "d" -Message "phishCount > 0"
                 # Set the initial Threat Score to 0 - increases as positive indicators for malware are observed during analysis
                 $threatScore = 0
                 # Extract reported messages
