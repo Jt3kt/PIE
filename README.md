@@ -130,7 +130,7 @@ High level overview of the PIE architecture and workflow:
 
 This project would not be a success without the folks below and the various third-party API integration providers. Thank you!
 
-- [Jtekt](https://github.com/Jtekt) - PIE 3.0 Base, UrlScan Plugin, Shodan Plugin, O365 Safelinks, bug fixes, and LR 7.4 API integration
+- [Jtekt](https://github.com/Jtekt) - PIE 3.1 Base, UrlScan Plugin, Shodan Plugin, O365 Safelinks, bug fixes, and LR 7.4 API integration
 - bruce deakyne -  Cisco AMP Threat GRID Plugin
 - Gewch, LogRhythm Community - Special character handler in e-mail subject line and updated ShortLink parser
 - jake reynolds - OpenDNS Plugin
