@@ -2,7 +2,7 @@
 
     Phishing Intelligence Engine
     LogRhythm Security Operations
-    v3.1  --  June, 2019
+    v3.1  --  August, 2019
 
 Copyright 2019 LogRhythm Inc. - See licensing details below
 
@@ -24,16 +24,21 @@ The Phishing Intelligence Engine (PIE) is a framework that will assist with the 
 
 #### 3.1 Updates:
 
-	- 365 Message Trace: Now supports Office 365 URL-Trace.  Provides SafeLinks click report.
 	- 365 Message Trace: Added url decryptor for Proofpoint URL Rewrite services.
-	- 365 Message Trace: Updated ShortLink parsing and reporting.
+	- 365 Message Trace: Updated ShortLink parsing, processing, and reporting.
+	- 365 Message Trace: Updated processing logic to reduce rate of false inspection.
 	- 365 Message Trace: Added additional error checking and handling.
+	- 365 Message Trace: Updated attachment handling for .eml format e-mail submissions.
+	- 365 Message Trace: Updated header export for .eml format e-mail submissions.
 	- 365 Message Trace: Updated PIE execution log available under PIE/logs/pierun.txt.
+	- 365 Message Trace: Added the ability to close out Outlook process to prevent stale communication sessions.
 	- 365 Message Trace: Added hashes.txt to case folder and notes for all identified e-mail attachments.
 	- 365 Message Trace: Various Bug Fixes and execution improvements.
 	- LogRhythm Case: Ability to assign playbooks to case.  Requires LogRhythm 7.4 or higher.
+	- 365 Advance Threat Protection: New Plugin.  Now supports Office 365 URL-Trace.  Provides SafeLinks click report.
 	- Shodan Plugin: Added ThreatScore requirement as a configuration option. 
 	- Shodan Plugin: Added PIE execution log for plugin.
+	- SmartResponse: New 365-SafeTracer.  Supports running E-mail Address or URL click reports for 365 Advance Threat Protect Url-Trace reports.
 
 #### 3.0 Updates:
 
