@@ -517,8 +517,17 @@ if ( $log -eq $true) {
         $outlook = new-object -com outlook.application
         $ns = $outlook.GetNameSpace("MAPI")
         $olSaveType = "Microsoft.Office.Interop.Outlook.OlSaveAsType" -as [type]
-        $rootFolders = $ns.Folders | ?{$_.Name -match $env:phishing}
+        $rootFolders = $ns.Folders | ?{$_.Name -match $socMailbox}
         $inbox = $ns.GetDefaultFolder($outlookInbox)
+        $inboxConfigCheck = $inbox.Folders.Count
+        Logger -logSev "i" -Message "Outlook Inbox Folder Count: $inboxConfigCheck"
+        if ($inboxConfigCheck -ge 2 ) {
+            Logger -logSev "d" -Message "Outlook Connection Test check successful"
+        } else {
+            Logger -logSev "e" -Message "Outlook Connection Test check failed.  Validate Outlook inbox established and verify permissions"
+            Logger -logSev "s" -Message "PIE Execution Halting"
+            exit 1
+        }
         Logger -logSev "i" -Message "Connecting to local inbox complete"
         #$messages = $inbox.items
         #$phishCount = $messages.count
