@@ -1,7 +1,7 @@
-﻿
+
   #====================================#
   # PIE - Phishing Intelligence Engine #
-  # v3.1  --  June, 2019               #
+  # v3.5  --  November, 2019           #
   #====================================#
 
 # Copyright 2019 LogRhythm Inc.   
@@ -122,9 +122,14 @@ $threatThreshold = 5 # Actions run when the threat score is greater than the 'th
 
 # General Link Analysis - No API key required and enabled by default
 $linkRegexCheck = $true
-$shortLink = $true
-$sucuri = $true
-$getLinkInfo = $true
+$shortLink = $false
+$sucuri = $false
+$getLinkInfo = $false
+$spearInspector = $true
+
+# Comodo Valkarie
+$comodoValkarie = $false
+$comodoApiKey = ""
 
 # Domain Tools
 $domainTools = $false
@@ -216,6 +221,7 @@ $caseFolder = "$pieFolder\cases\"
 $tmpFolder = "$pieFolder\tmp\"
 $confFolder = "$pieFolder\conf\"
 $runLog = "$pieFolder\logs\pierun.txt"
+$pieLog = "$pieFolder\logs\pielog.txt"
 $log = $true
 try {
     $lastLogDate = [DateTime]::SpecifyKind((Get-Content -Path $lastLogDateFile),'Utc')
@@ -232,10 +238,13 @@ $domainWhitelist = (Get-Content $confFolder\urlWhitelist.txt) | %{ ([System.Uri]
 #Set VirusTotal runtime clock to null
 $vtRunTime = $null
 
+#Set global threat score
+$global:threatScore = 0
+
 # Email Parsing Varibles
 $boringFiles = @('jpg', 'png', 'ico', 'tif')    
 $boringFilesRegex = [string]::Join('|', $boringFiles)
-$interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'htm', 'js', 'rpm', 'bat', 'cmd')
+$interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'htm', 'js', 'rpm', 'bat', 'cmd', 'apk')
 $interestingFilesRegex = [string]::Join('|', $interestingFiles)
 
 
@@ -254,6 +263,7 @@ function GetSubfolders($Parent) {
 function Get-TimeStamp {
     return "[{0:MM/dd/yy} {0:HH:mm:ss}]" -f (Get-Date)
 }
+
 
 function Logger {
     Param(
@@ -346,6 +356,49 @@ function Get-Hash(
     return $result
 }
 
+function Create-Hash(
+    [string] $inputString, 
+    [String] $hashType = 'sha256')
+{
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($inputString)
+    $hashAlgorithm = [System.Security.Cryptography.HashAlgorithm]::Create($hashType)
+    $stringBuild = New-Object System.Text.StringBuilder
+
+    $hashAlgorithm.ComputeHash($bytes) | ForEach-Object { $null = $StringBuild.Append($_.ToString("x2")) } 
+
+    
+    $stringBuild.ToString() 
+}
+
+function Pie-Log {
+    Param(
+    $logMessageBody = $messageBody,
+    $logSender = $spammer,
+    $logRecipient = $reportedBy,
+    $logThreatScore = $threatScore,
+    $logCaseNum = $caseNumber
+    )
+    $cTime = "{0:MM/dd/yy} {0:HH:mm:ss}" -f (Get-Date)
+    #Create phishLog if file does not exist.
+    if ( $(Test-Path $pieLog -PathType Leaf) -eq $false ) {
+        Set-Content $pieLog -Value "PIE Powershell pielog for $date"
+        Write-Output "$cTime ALERT - No pieLog detected.  Created new $pieLog" | Out-File $pieLog
+    }
+
+    Try {
+        $logHash = Create-Hash -inputString $logMessageBody
+    } Catch {
+        Logger -logSev "e" -Message "Unable to create logMessageBody hash"
+    }
+    Try {
+        Write-Output "$cTime; $logCaseNum; $logThreatScore; $logHash; $logSender; $logRecipient" | Out-File $pieLog -Append
+    } Catch {
+        Logger -logSev -e -Message "Unable to append entry to pielog.  Case: $logCaseNum Hash: $logHash"
+    }
+}
+
+
+
 # Outlook Folder Parsing
 function GetSubfolders($Parent) {
     $folders = $Parent.Folders
@@ -357,8 +410,608 @@ function GetSubfolders($Parent) {
 }
 
 
+# Function based Plugins
+function pluginValkarie {
+    Param (
+        [string]$cmdCheckDomain,
+        [string]$cmdCheckFileHash,
+        [string]$cmdCheckUri,
+        [Parameter(Mandatory=$true)]
+        [string]$cmdApiKey
+    )
+    $cmdVerdict = ""
+    $cmdResultID = ""
+    $cmdResultMessage = ""
+    $cmdReturnCode = ""
+    $cmdLastAnalysis = ""
+
+    # Domain provided by Valkyrie Verdict
+    if ($cmdCheckDomain) {
+        Logger -logSev "d" -Message "Domain Lookup: $cmdCheckDomain"
+        $cmdStatus = "== Comodo Valkarie - Domain Lookup ==\r\nDomain: $cmdCheckDomain\r\n"
+        $cmdUri = "https://verdict.valkyrie.comodo.com/api/v1/domain/query?domain=$cmdCheckDomain&analyze=true"
+
+        $InvokeRestMethodSplat = @{
+            Method      = 'GET'
+            Headers     = @{'x-api-key' = $cmdApiKey}
+            ContentType = 'application/json'
+            Body        = ''
+            Uri         = $cmdUri
+            ErrorAction = 'Stop'
+        }
+        
+        $Result = Invoke-RestMethod -Method Get -Headers @{'x-api-key' = $cmdApiKey} -ContentType 'application/json' -Uri $cmdUri -ErrorAction Stop
+        $cmdResultText = $Result.domain_result_text
+        $cmdResultID = $Result.domain_result_id
+        switch ( $cmdResultID) {
+            1{
+                #1 Not found
+                $cmdStatus += "Result Verdict: Domain not found\r\nResult ID: 1\r\n"
+                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Domain not found"
+            }
+            2{
+                #2 Safe
+                $cmdStatus += "Result Verdict: Safe\r\nResult ID: 2\r\n"
+                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Safe"
+            }
+            3{
+                #3 Suspicious
+                $cmdStatus += "Result Verdict: Suspicious\r\nResult ID: 3\r\n"
+                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Suspicious ThreatScore Add: 1"
+                $global:threatScore += 1
+            }
+            4{
+                #4 Phishing
+                $cmdStatus += "Result Verdict: Phishing\r\nResult ID: 4\r\n"
+                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Phishing ThreatScore Add: 10"
+                $global:threatScore += 10
+            }
+            5{
+                #5 Malware
+                $cmdStatus += "Result Verdict: Malware\r\nResult ID: 5\r\n"
+                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Malware ThreatScore Add: 10"
+                $global:threatScore += 10
+            }
+            6{
+                #6 Malicious
+                $cmdStatus += "Result Verdict: Malicious\r\nResult ID: 6\r\n"
+                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Malicious ThreatScore Add: 5"
+                $global:threatScore += 5
+            }
+            7{
+                #7 PUA
+                $cmdStatus += "Result Verdict: PUA\r\nResult ID: 7\r\n"
+                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: PUA"
+            }
+        }
+
+        $cmdResultMessage = $Result.result_message
+        $cmdReturnCode = $Result.return_code
+        switch ( $cmdReturnCode ) {
+            0{
+                #0 Success 
+                $cmdStatus += "\r\nAPI Return Message: Success\r\nAPI Return Code: 0\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Success"
+            }
+            3{
+                #3 Error in fls lookup service
+                $cmdStatus += "\r\nAPI Return Message: Error in fls lookup service\r\nAPI Return Code: 3\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error"
+            }
+            100{
+                #100 Requested API Key is invalid
+                $cmdStatus += "\r\nAPI Return Message: Requested API Key is invalid\r\nAPI Return Code: 100\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Invalid API Key"
+            }
+            101{
+                #101 API method is not allowed for this API key
+                $cmdStatus += "\r\nAPI Return Message: API method is not allowed for this API key\r\nAPI Return Code: 101\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API Method not permitted for provided API key"
+            }
+            102{
+                #102 Operation request limit is reached, please try again later
+                $cmdStatus += "\r\nAPI Return Message: Operation request limit is reached, please try again later\r\nAPI Return Code: 102\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API limit reached"
+            }
+            104{
+                #104 Daily operation request limit is reached, please try again later
+                $cmdStatus += "\r\nAPI Return Message: Daily operation request limit is reached, please try again later\r\nAPI Return Code: 104\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Daily operation request limit reached"
+            }
+            500{
+                #500 Internal server error occurred
+                $cmdStatus += "\r\nAPI Return Message: Internal server error occurred\r\nAPI Return Code: 500\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Internal server error"
+            }
+            default{
+                #Unknown error occurred
+                $cmdStatus += "\r\nAPI Return Message: An internal PIE error has occured\r\nAPI Return Code: Error\r\n"
+                Logger -logSev "e" -Message "API Return Message: An inernal PIE error has occured"
+            }
+        }
+    } elseif ($cmdCheckFileHash) {
+        $cmdStatus = "== Comodo Valkarie - File Hash Lookup ==\r\nHash: $cmdCheckFileHash\r\n"
+        $cmdUri = "https://verdict.valkyrie.comodo.com/api/v1/file/query/$cmdCheckFileHash"
+
+        $InvokeRestMethodSplat = @{
+            Method      = 'GET'
+            Headers     = @{'x-api-key' = $cmdApiKey}
+            ContentType = 'application/json'
+            Body        = ''
+            Uri         = $cmdUri
+            ErrorAction = 'Stop'
+        }
+        
+        $Result = Invoke-RestMethod -Method Get -Headers @{'x-api-key' = $cmdApiKey} -ContentType 'application/json' -Uri $cmdUri -ErrorAction Stop
+        $cmdVerdict = $Result.verdict
+        switch ( $cmdVerdict) {
+            -1{
+                #-1 Clean
+                $cmdStatus += "Result Verdict: Clean\r\nResult ID: -1\r\n"
+                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: Clean"
+            }
+            1{
+                #1 Malware
+                $cmdStatus += "Result Verdict: Malware\r\nResult ID: 1\r\n"
+                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: Malware Increase ThreatScore: 10"
+                $global:threatScore += 10
+            }
+            2{
+                #2 Not Available
+                $cmdStatus += "Result Verdict: Not Availabler\nResult ID: 2\r\n"
+                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: Not Available"
+            }
+            3{
+                #4 PUA
+                $cmdStatus += "Result Verdict: PUA\r\nResult ID: 3\r\n"
+                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: PUA"
+            }
+        }
+        $cmdLastAnalysis = $Result.last_analysis_date
+        $cmdResultID = $Result.url_result_id
+        $cmdResultMessage = $Result.result_message
+        $cmdReturnCode = $Result.return_code
+
+        switch ( $cmdReturnCode ) {
+            0{
+                #0 Success 
+                $cmdStatus += "\r\nAPI Return Message: Success\r\nAPI Return Code: 0\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Success"
+            }
+            1{
+                #1 SHA1 can not be empty and must be 40 characters in length
+                $cmdStatus += "\r\nAPI Return Message: SHA1 can not be empty and must be 40 characters in length\r\nAPI Return Code: 1\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: SHA1 can not be empty and must be 40 characters in length"
+            }
+            8{
+                #8 Requested file not found (Absent)
+                $cmdStatus += "\r\nAPI Return Message: Requested file not found\r\nAPI Return Code: 8\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Requested file not found"
+            }
+            9{
+                #9 File exists but verdict is not given, please check later
+                $cmdStatus += "\r\nAPI Return Message: File exists but verdict is not given, please check later\r\nAPI Return Code: 9\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: FIle exists but verdict is not given, please check later"
+            }
+            3{
+                #3 Error in fls lookup service
+                $cmdStatus += "\r\nAPI Return Message: Error in fls lookup service\r\nAPI Return Code: 3\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error in fls lookup service"
+            }
+            11{
+                #11 SHA256 Not found
+                $cmdStatus += "\r\nAPI Return Message: SHA256 not found in database\r\nAPI Return Code: 11\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error"
+            }
+            100{
+                #100 Requested API Key is invalid
+                $cmdStatus += "\r\nAPI Return Message: Requested API Key is invalid\r\nAPI Return Code: 100\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Requested API Key is invalid"
+            }
+            101{
+                #101 API method is not allowed for this API key
+                $cmdStatus += "\r\nAPI Return Message: API method is not allowed for this API key\r\nAPI Return Code: 101\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API method is not allowed for this API key"
+            }
+            102{
+                #102 Operation request limit is reached, please try again later
+                $cmdStatus += "\r\nAPI Return Message: Operation request limit is reached, please try again later\r\nAPI Return Code: 102\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Operation request limit is reached"
+            }
+            104{
+                #104 Daily operation request limit is reached, please try again later
+                $cmdStatus += "\r\nAPI Return Message: Daily operation request limit is reached, please try again later\r\nAPI Return Code: 104\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Daily operation request limit is reached"
+            }
+            500{
+                #500 Internal server error occurred
+                $cmdStatus += "\r\nAPI Return Message: Internal server error occurred\r\nAPI Return Code: 500\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Internal server error occured"
+            }
+            default{
+                #Unknown error occurred
+                $cmdStatus += "\r\nAPI Return Message: An internal PIE error has occured\r\nAPI Return Code: Error\r\n"
+                Logger -logSev "i" -Message "API Return Message: An internal PIE error has occured.  API Return Code: $cmdReturnCode"
+            }
+        }
+    } elseif ($cmdCheckUri) {
+        $cmdStatus = "== Comodo Valkarie - URI Lookup ==\r\nURI: $cmdCheckURI\r\n"
+        # Uri provided by Valkyrie Verdict
+        $cmdUri = "https://verdict.valkyrie.comodo.com/api/v1/url/query?url=$cmdCheckUri&analyze=true"
+
+        $InvokeRestMethodSplat = @{
+            Method      = 'GET'
+            Headers     = @{'x-api-key' = $cmdApiKey}
+            ContentType = 'application/json'
+            Body        = ''
+            Uri         = $cmdUri
+            ErrorAction = 'Stop'
+        }
+        
+        $Result = Invoke-RestMethod -Method Get -Headers @{'x-api-key' = $cmdApiKey} -ContentType 'application/json' -Uri $cmdUri -ErrorAction Stop
+        $cmdVerdict = $Result.url_result_text
+        $cmdResultID = $Result.url_result_id
+
+        switch ( $cmdResultID) {
+            1{
+                #1 Not found
+                $cmdStatus += "Result Verdict: URI not found\r\nResult ID: 1\r\n"
+                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: URI not found"
+            }
+            2{
+                #2 Safe
+                $cmdStatus += "Result Verdict: Safe\r\nResult ID: 2\r\n"
+                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Safe"
+            }
+            3{
+                #3 Suspicious
+                $cmdStatus += "Result Verdict: Suspicious\r\nResult ID: 3\r\n"
+                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Suspicious ThreatScore Add: 1"
+                $global:threatScore += 1
+            }
+            4{
+                #4 Phishing
+                $cmdStatus += "Result Verdict: Phishing\r\nResult ID: 4\r\n"
+                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Phishing ThreatScore Add: 10"
+                $global:threatScore += 10
+            }
+            5{
+                #5 Malware
+                $cmdStatus += "Result Verdict: Malware\r\nResult ID: 5\r\n"
+                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Malware ThreatScore Add: 10"
+                $global:threatScore += 10
+            }
+            6{
+                #6 Malicious
+                $cmdStatus += "Result Verdict: Malicious\r\nResult ID: 6\r\n"
+                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Malicious ThreatScore Add: 5"
+                $global:threatScore += 5
+            }
+            7{
+                #7 PUA
+                $cmdStatus += "Result Verdict: PUA\r\nResult ID: 7\r\n"
+                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: PUA"
+            }
+        }
+
+        $cmdLastAnalysis = $Result.last_analysis_date
+        $cmdResultMessage = $Result.result_message
+        $cmdReturnCode = $Result.return_code
+        switch ( $cmdReturnCode ) {
+            0{
+                #0 Success 
+                $cmdStatus += "\r\nAPI Return Message: Success\r\nAPI Return Code: 0\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Success"
+            }
+            3{
+                #3 Error in fls lookup service
+                $cmdStatus += "\r\nAPI Return Message: Error in fls lookup service\r\nAPI Return Code: 3\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error"
+            }
+            100{
+                #100 Requested API Key is invalid
+                $cmdStatus += "\r\nAPI Return Message: Requested API Key is invalid\r\nAPI Return Code: 100\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Invalid API Key"
+            }
+            101{
+                #101 API method is not allowed for this API key
+                $cmdStatus += "\r\nAPI Return Message: API method is not allowed for this API key\r\nAPI Return Code: 101\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API Method not permitted for provided API key"
+            }
+            102{
+                #102 Operation request limit is reached, please try again later
+                $cmdStatus += "\r\nAPI Return Message: Operation request limit is reached, please try again later\r\nAPI Return Code: 102\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API limit reached"
+            }
+            104{
+                #104 Daily operation request limit is reached, please try again later
+                $cmdStatus += "\r\nAPI Return Message: Daily operation request limit is reached, please try again later\r\nAPI Return Code: 104\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Daily operation request limit reached"
+            }
+            500{
+                #500 Internal server error occurred
+                $cmdStatus += "\r\nAPI Return Message: Internal server error occurred\r\nAPI Return Code: 500\r\n"
+                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Internal server error"
+            }
+            default{
+                #Unknown error occurred
+                $cmdStatus += "\r\nAPI Return Message: An internal PIE error has occured\r\nAPI Return Code: Error\r\n"
+                Logger -logSev "e" -Message "API Return Message: An inernal PIE error has occured"
+            }
+        }
+    } else {
+        Write-Output "No paramaters provided to check against Comodo Valkarie"
+    }
+     
+    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$cmdStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+    $cmdStatus += "\r\n==== Comodo Valkarie - END ====\r\n"
+    Write-Output $cmdStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
+}
+
+
+# Spear Phishing Inspector
+function pluginSpearIns {
+    Param (
+        [string]$sprMessageBody = $messageBody,
+        [string]$sprDisplayName = $spammerDisplayName
+    )
+    Logger -logSev "s" -Message "Begin - Plugin - SpearPhish Inspector"
+    Logger -logSev "i" -Message "Pull list of keyNames from LR List API"
+
+
+
+    Logger -logSev "i" -Message "Inspecting message body for restricted names"
+    $sprReport = $false
+    $sprMatchType = $null
+    # Add logic for inspecting message body for specific names/values
+
+#force TLS v1.2 required by caseAPI
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+#Ignore invalid SSL certification warning
+add-type @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(
+        ServicePoint srvPoint, X509Certificate certificate,
+        WebRequest request, int certificateProblem) {
+        return true;
+    }
+}
+"@
+[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+
+
+    $listURL = "https://" + $LogRhythmHost + "/lr-admin-api/"
+    $listToken = "Bearer $caseAPItoken"
+    $listHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $listHeaders.Add("Content-type", "application/json")
+    $listHeaders.Add("Authorization", $listToken)
+    $listHeaders.Add("pageSize", "1000")
+    $listHeaders.Add("maxItemsThreshold", "1000")
+
+    $listGUIDURL = "$listURL/lists/"
+    $output = Invoke-RestMethod -Uri $listGUIDURL -Headers $listHeaders -Method GET
+    $listGuid = @($output | Where-Object name -EQ "pieExecutiveWatchlist").guid
+    $listItemsURL = $listGUIDURL + $listGuid
+    $output = Invoke-RestMethod -Uri $listItemsURL -Headers $listHeaders -Method GET
+    [string[]]$keyNames = @($output).items.value
+
+
+    # Bring Back array list of keywords/names
+    # Split array for two additional variables, firstnames and lastnames
+    #[string[]]$keyNames = 'bob jones', 'Eric hart', 'jt3ct'
+    [string[]]$keyFNames = $null
+    [string[]]$keyLNames = $null
+    # Bring Back array list of keywords/names
+    # Split array for two additional variables, firstnames and lastnames
+    $keyNames | ForEach-Object {
+        [string[]]$keyFNames += $_.Split(" ")[0]
+        [string[]]$keyLNames += $_.Split(" ")[1] 
+    }
+    $sprStatus = "== SpearPhish Inspector ==\r\n"
+    # Run through messageBody inspecting for matches
+    If([string]$sprMessageBody -match ($keyNames -join "|")) {
+        $sprReport = $true
+        $sprMatchType = "full"
+        #This should be evald by security even if threatScore = 0
+        if ($threatScore -eq 0) {
+            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Message body\r\n\r\n"
+        } elseif ($threatScore -gt 0) {
+            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Message body\r\n\r\n"
+
+        }
+        Logger -logSev "i" -Message "Restricted name: $($Matches.Values) identified"
+    } elseif ($threatScore -gt 0 -AND ([string]$sprMessageBody -match ($keyFNames -join "|") -or ([string]$sprMessageBody -match ($keyLNames -join "|")))) {
+        #This should be evald by security due to threatScore and partial keyName match
+        $sprReport = $true
+        $sprMatchType = "partial"
+        $sprStatus += "Status: Partial name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Message body\r\n\r\n"
+        Logger -logSev "i" -Message "Threat Score greater than 2.  Restricted Partial Name: $($Matches.Values)"
+    } else {
+        Logger -logSev "i" -Message "No key names identified in messageBody"
+    }
+
+    # Run through Spammer Display name inspecting for matches
+    If([string]$sprDisplayName -match ($keyNames -join "|")) {
+        $sprReport = $true
+        $sprMatchType = "full"
+        #This should be evald by security even if threatScore = 0
+        if ($threatScore -eq 0) {
+            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Sender display name\r\n\r\n"
+        } elseif ($threatScore -gt 0) {
+            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Sender display name\r\n\r\n"
+        }
+        Logger -logSev "i" -Message "Restricted name: $($Matches.Values) identified"
+    } elseif ($threatScore -gt 0 -AND ([string]$sprDisplayName -match ($keyFNames -join "|") -or ([string]$sprDisplayName -match ($keyLNames -join "|")))) {
+        #This should be evald by security due to threatScore and partial keyName match
+        $sprReport = $true
+        $sprMatchType = "partial"
+        $sprStatus = "Status: Partial name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Sender display name\r\n\r\n"
+        Logger -logSev "i" -Message "Threat Score greater than 2.  Restricted Partial Name: $($Matches.Values)"
+    } else {
+        Logger -logSev "i" -Message "No key names identified in messageBody"
+    }
+
+    if ($sprReport -eq $true) {
+        if ($threatScore -eq 0) {
+            $global:threatScore += 2
+            $sprStatus += "Summary: No indicators of URL/File based threats present.  A $sprMatchType name match with monitor list has been identified.  Review e-mail message content for Social Engineering."
+            
+        } elseif ($threatScore -gt 0) {
+            $global:threatScore += 4
+            $sprStatus += "Summary: Indicators of URL/File based threats present.  A $sprMatchType name match with monitor list has been identified."
+        }
+
+        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$sprStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+        $sprStatus += "\r\n====  SpearPhish Inspector - END ====\r\n"
+        Write-Output $sprStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
+
+    }
+
+    # Add logic to hash message body.  Supply to LR function to validate if is member of existing list.  If not a member of list treat as unique
+
+    Logger -logSev "s" -Message "End - Plugin - SpearPhish Inspector"
+}
+
+function Submit-Hash {
+
+    Try {
+        $logHash = Create-Hash -inputString $messageBody
+    } Catch {
+        Logger -logSev "e" -Message "Unable to create logMessageBody hash"
+    }
+    #force TLS v1.2 required by caseAPI
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+#Ignore invalid SSL certification warning
+add-type @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(
+        ServicePoint srvPoint, X509Certificate certificate,
+        WebRequest request, int certificateProblem) {
+        return true;
+    }
+}
+"@
+    [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+
+
+    $listURL = "https://" + $LogRhythmHost + "/lr-admin-api/"
+    $listToken = "Bearer $caseAPItoken"
+    $listHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $listHeaders.Add("Content-type", "application/json")
+    $listHeaders.Add("Authorization", $listToken)
+    $listHeaders.Add("pageSize", "1000")
+    $listHeaders.Add("maxItemsThreshold", "1000")
+    $listGUIDURL = "$listURL/lists/"
+    Try {    
+        $output = Invoke-RestMethod -Uri $listGUIDURL -Headers $listHeaders -Method GET
+    } Catch {
+        Logger -logSev "e" -Message "Failed to retrieve list of LogRhythm Lists"
+        Logger -logSev "d" -Message "$_.Exception.Message"
+    }
+    Logger -logSev "s" -Message "Begin - Submit Hash to LogRhythm List"
+    if ($threatScore -gt 0 ) {
+        Logger -logSev "i" -Message "ThreatScore greater than zero.  Submitting message body hash to LogRhythm"
+
+
+
+
+        $listGuid = @($output | Where-Object name -EQ "pieRiskyMessageHashes").guid
+        $listType = @($output | Where-Object name -EQ "pieRiskyMessageHashes").listType
+        $listUpdate = $listGUIDURL + $listGuid + "/items"
+        Logger -logSev "d" -Message "List Update URL: $listUpdate"
+        
+
+        #listType = GeneralValue/String
+        if($listType -eq "GeneralValue") {
+            $listType = "StringValue"
+            $listItemDataType = "String"
+        }
+        Logger -logSev "d" -Message "ListType: $listType ListItemDataType: $listItemDataType"
+		$exp_date = (Get-Date).AddDAys(7).ToString("yyyy-MM-dd")
+		
+	    $payload = @('{ "items": 
+[
+{
+	"displayValue": "List",
+	"expirationDate": "' + $exp_date + '",
+	"isExpired": false,
+	"isListItem": false,
+	"isPattern": false,
+	"listItemDataType": "' + $listItemDataType + '",
+	"listItemType": "' + $listType + '",
+	"value": "' + $logHash + '",
+	"valueAsListReference": {}
+}
+]}')
+			
+	    try {
+            
+		    $output = Invoke-RestMethod -Uri $listUpdate -Headers $listHeaders -Method POST -Body $payload
+            Logger -logSev "i" -Message "Hash $logHash successfully added to list: pieRiskyMessageHashes"
+
+	    } catch {
+            Logger -logSev "e" -Message "Hash $logHash failed append to list: pieRiskyMessageHashes"
+            Logger -logSev "d" -Message "$_.Exception.Message"
+	    }
+    } else {
+        Logger -logSev "i" -Message "Message Hash  submitted.  Message ThreatScore: $threatScore"
+
+        Logger -logSev "i" -Message "ThreatScore equal to zero.  Submitting benign hash to LogRhythm"
+
+
+
+
+        $listGuid = @($output | Where-Object name -EQ "pieBenignMessageHashes").guid
+        $listType = @($output | Where-Object name -EQ "pieRiskyMessageHashes").listType
+        $listUpdate = $listGUIDURL + $listGuid + "/items"
+        Logger -logSev "d" -Message "List Update URL: $listUpdate"
+        
+
+        #listType = GeneralValue/String
+        if($listType -eq "GeneralValue") {
+            $listType = "StringValue"
+            $listItemDataType = "String"
+        }
+        Logger -logSev "d" -Message "ListType: $listType ListItemDataType: $listItemDataType"
+		$exp_date = (Get-Date).AddDAys(7).ToString("yyyy-MM-dd")
+		
+	    $payload = @('{ "items": 
+[
+{
+	"displayValue": "List",
+	"expirationDate": "' + $exp_date + '",
+	"isExpired": false,
+	"isListItem": false,
+	"isPattern": false,
+	"listItemDataType": "' + $listItemDataType + '",
+	"listItemType": "' + $listType + '",
+	"value": "' + $logHash + '",
+	"valueAsListReference": {}
+}
+]}')
+			
+	    try {
+            
+		    $output = Invoke-RestMethod -Uri $listUpdate -Headers $listHeaders -Method POST -Body $payload
+            Logger -logSev "i" -Message "Hash $logHash successfully added to list: pieBenignMessageHashes"
+
+	    } catch {
+            Logger -logSev "e" -Message "Hash $logHash failed append to list: pieBenignMessageHashes"
+            Logger -logSev "d" -Message "$_.Exception.Message"
+	    }
+    }
+
+    Logger -logSev "s" -Message "End - Submit Hash to LogRhythm List"
+}
+
 # Link and Domain Verification
-$IPregex=‘(?<Address>((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))’
+$IPregex='(?<Address>((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))'
 [regex]$URLregex = '(http:\/\/www\.|https:\/\/www\.|http:\/\/|https:\/\/)?[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?'
 [regex]$IMGregex =  '(http(s?):)([/|.|\w|\s|-])*\.(?:jpg|gif|png)'
 
@@ -664,7 +1317,7 @@ if ( $log -eq $true) {
 
                     if ( ($reportedMsgAttachments -like "*.msg*") )  {
                         Logger -logSev "s" -Message "Processing .msg e-mail format"
-                        foreach($attachment in $reportedMsgAttachments) {
+                        #foreach($attachment in $reportedMsgAttachments) {
                             Logger -logSev "d" -Message "Processing reported e-mail attachments: $tmpFolder$attachment"
                             Logger -logSev "i" -Message "Loading submitted .msg e-mail"
                             $msg = $outlook.Session.OpenSharedItem("$tmpFolder$attachment")
@@ -700,13 +1353,14 @@ if ( $log -eq $true) {
                             #Load links
                             #Check if HTML Body exists else populate links from Text Body
                             Logger -logSev "i" -Message "Identifying URLs"
-                            if ( $($msg.HTMLBody.Length -gt 0) ) {
-                                Logger -logSev "d" -Message "Processing URLs from HTML body"
-                                $getLinks = $URLregex.Matches($($msg.HTMLBody)).Value.Split("") | findstr http
+                            if ( $($msg.Body.Length -gt 0) ) {
+                                Logger -logSev "d" -Message "Processing URLs from Message body - Last Effort Approach"
+                                $getLinks = $URLregex.Matches($($msg.Body)).Value.Split("") | findstr http
+                                
                             } 
                             else {
-                                Logger -logSev "a" -Message "Processing URLs from Message body - Last Effort Approach"
-                                $getLinks = $URLregex.Matches($($msg.Body)).Value.Split("") | findstr http
+                                Logger -logSev "a" -Message "Processing URLs from HTML body"
+                                $getLinks = $URLregex.Matches($($msg.HTMLBody)).Value.Split("") | findstr http
                             }
 
                                 
@@ -762,7 +1416,7 @@ if ( $log -eq $true) {
                             Logger -logSev "i" -Message "Spammer set to: $spammer"
                             $spammerDisplayName = $msg.SenderName
                             Logger -logSev "i" -Message "Spammer Display Name set to: $spammerDisplayName"
-                        }
+                        #}
                     } elseif ( ($reportedMsgAttachments -like "*.eml*") )  {
                         Logger -logSev "s" -Message "Processing .eml e-mail format"
                         $emlAttachment = $reportedMsgAttachments -like "*.eml*"
@@ -1268,6 +1922,8 @@ if ( $log -eq $true) {
                 Logger -logSev "s" -Message "End ShortLink parser"
                 
                 Logger -logSev "s" -Message "End Link Processing"
+                Logger -logSev "s" -Message "Begin Hash Processing"
+                Logger -logSev "i" -Message "Unique Hash Count: $($scanHashes.count)"
 
                 if ( $fileHashes ) {
                     ForEach ($hash in $fileHashes) {
@@ -1275,6 +1931,8 @@ if ( $log -eq $true) {
                         Write-Output $hashOutput >> $tmpFolder\hashes.txt
                     }
                 }
+                Logger -logSev "s" -Message "End Hash Processing"
+
 
                 # Create a case folder
                 Logger -logSev "s" -Message "Creating Case"
@@ -2410,6 +3068,34 @@ Case Folder:                 $caseID
                     }
                 }
 
+                # Comodo Valkarie
+                if ( $comodoValkarie -eq $true ) {
+                    Logger -logSev "s" -Message "Begin Comodo Valkarie"
+                    if ( $fileHashes.Length -gt 0 ) {
+                        Logger -logSev "i" -Message "Inspecting File Hashes"
+
+                        $fileHashes | ForEach-Object {
+                            $comodoFileName = Split-Path -Path $($_.path) -Leaf
+                            pluginValkarie -cmdCheckFileHash $($_.hash) -cmdApiKey $comodoApiKey
+                            Logger -logSev "d" -Message "Submitting file: $comodoFileName Hash: $($_.hash)"
+                        }
+                    }
+                    if ( $scanLinks.length -gt 0 ) {
+                        Logger -logSev "i" -Message "Inspecting URLs"
+                        $scanLinks | ForEach-Object {
+                            #pluginValkarie -cmdCheckUri $_ -cmdApiKey $comodoApiKey
+                        }
+                    }
+                    if ( $scanDomains.length -gt 0 ) {
+                        Logger -logSev "i" -Message "Inspecting Domains"
+                        $scanDomains | ForEach-Object {
+                            pluginValkarie -cmdCheckDomain $_ -cmdApiKey $comodoApiKey
+                        }
+
+                    }
+                    Logger -logSev "s" -Message "End Comodo Valkarie"
+                }
+
 
                 # SHORT LINK ANALYSIS
                 if ( $shortLink -eq $true ) {
@@ -2673,6 +3359,11 @@ Case Folder:                 $caseID
                     }
                 }
 
+                if ($spearInspector) {
+                    pluginSpearIns
+                }
+                
+
             #>
     
             
@@ -2791,6 +3482,11 @@ Case Folder:                 $caseID
 # ================================================================================
 # Case Closeout
 # ================================================================================
+                #Write out PIE Log
+                Pie-Log
+
+                #Submit Hashes to LR
+                Submit-Hash
 
                 # Final Threat Score
                 Logger -logSev "i" -Message "LogRhythm API - Add Threat Score"
