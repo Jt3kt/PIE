@@ -49,6 +49,10 @@ $ErrorActionPreference= 'silentlycontinue'
 $EncodedXMLCredentials = $false
 $PlainText = $true
 
+# Use Microsoft 365 Modern Authentication ** Requires Additional Configuration and Setup **
+$o365ModernAuth = $false
+$exoModuleFolder = "ExoPSModule" 
+
 # XML Configuration - store credentials in an encoded XML (best option)
 #     This file will need to be re-generated whenever the server reboots!
 if ( $EncodedXMLCredentials ) {
@@ -215,6 +219,7 @@ $tmpLog = "$pieFolder\logs\tmp.csv"
 $caseFolder = "$pieFolder\cases\"
 $tmpFolder = "$pieFolder\tmp\"
 $confFolder = "$pieFolder\conf\"
+$exoModulePath = "$confFolder$exoModuleFolder" 
 $runLog = "$pieFolder\logs\pierun.txt"
 $log = $true
 try {
@@ -367,28 +372,34 @@ Logger -logSev "s" -Message "BEGIN NEW PIE EXECUTION"
 # ================================================================================
 # Office 365 API Authentication
 # ================================================================================
-
 if ( $EncodedXMLCredentials ) {
     try {
         $cred = Import-Clixml -Path $CredentialsFile
         $Username = $cred.Username
-        $Password = $cred.GetNetworkCredential().Password
+        $password = $cred.GetNetworkCredential().Password
     } catch {
         Write-Error ("Could not find credentials file: " + $CredentialsFile)
         Logger -logSev "e" -Message "Could not find credentials file: $CredentialsFile"
         Break;
     }
 }
-
 try {
     if (-Not ($password)) {
         $cred = Get-Credential
     } Else {
         $securePass = ConvertTo-SecureString -string $password -AsPlainText -Force
-        $cred = New-Object -typename System.Management.Automation.PSCredential -argumentlist $username, $securePass
     }
-
-    $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $cred -Authentication Basic -AllowRedirection
+    $Creds = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList ($Username, $securePass)
+    if ($o365ModernAuth -eq $true ) {
+        Logger -logSev "i" -Message "Authenticating to Office 365 API with Modern Authentication"
+        $exoDLL = "Microsoft.Exchange.Management.ExoPowershellModule.dll"
+        $getExoModule = (Get-ChildItem -Path $ExoModulePath -Filter $exoDLL -Recurse).FullName | Select-Object -First 1
+        Import-Module $getExoModule
+        $Session = New-ExoPSSession -UserPrincipalName $Username -Credential $Creds
+    } else {
+        Logger -logSev "i" -Message "Authenticating to Office 365 API with Basic Authentication"
+        $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $Creds -Authentication Basic -AllowRedirection
+    }
     Import-PSSession $Session -AllowClobber
     Logger -logSev "s" -Message "Established Office 365 connection"
 } Catch {
@@ -397,6 +408,7 @@ try {
     Exit 1
     Break;
 }
+
 
 
 # ================================================================================
