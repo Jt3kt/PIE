@@ -1,10 +1,10 @@
 
   #====================================#
   # PIE - Phishing Intelligence Engine #
-  # v3.5  --  November, 2019           #
+  # v3.5  --  November 2020            #
   #====================================#
 
-# Copyright 2019 LogRhythm Inc.   
+# Copyright 2020 LogRhythm Inc.   
 # Licensed under the MIT License. See LICENSE file in the project root for full license information.
 
 <#
@@ -46,8 +46,8 @@ $ErrorActionPreference= 'silentlycontinue'
 
 # Choose how to handle credentials - set the desired flag to $true
 #     Be sure to set credentials or xml file location below
-$EncodedXMLCredentials = $false
-$PlainText = $true
+$EncodedXMLCredentials = $true
+$PlainText = $false
 
 # XML Configuration - store credentials in an encoded XML (best option)
 #     This file will need to be re-generated whenever the server reboots!
@@ -56,7 +56,7 @@ if ( $EncodedXMLCredentials ) {
     # To generate the XML:
     #      PS C:\> Get-Credential | Export-Clixml Service-Account_cred.xml
     #
-    $CredentialsFile = "C:\Path-To-Credentials-File.xml"
+    $CredentialsFile = "C:\PIE\Example_cred.xml"
 }
 
 # Plain Text Credentials (not recommended)
@@ -65,19 +65,21 @@ if ( $PlainText ) {
     $password = "PASSWORD"
 }
 
+# LogRhythm API Integration via LogRhyhtm.Tools
+import-module logrhythm.tools
+
 # Mailbox where Phishing emails will be reported
-$socMailbox = "phishing@somedomain.com"
+$socMailbox = "phishtank@example.com"
 
 # LogRhythm Case API Integration
-$LogRhythmHost = "LR Web Console Domain/IP:8501"
-$caseAPItoken = ""
+$LogRhythmHost = "yourlogrhythmpm.com"
 
 # Threat List to update with known spammer email addresses. Set to $true if you'd like to automatically update threat lists
 $spamTracker = $false
 $spammerList = "List Name"
 
 # Case Folder and Logging
-$pieFolder = "C:\PIE\INSTALLATION\DIRECTORY"
+$pieFolder = "C:\PIE"
 
 # Auto-auditing mailboxes. Set to $true if you'd like to automatically enable auditing on new O365 mailboxes
 $autoAuditMailboxes = $false
@@ -85,12 +87,12 @@ $autoAuditMailboxes = $false
 # Case Tagging and User Assignment
 $defaultCaseTag = "PIE" # Default value - modify to match your case tagging schema. Note "PIE" tag is used with the Case Management Dashboard.
 $caseOwner = "" # Primary case owner / SOC lead
-$caseCollaborators = ("lname1, fname1", "lname2, fname2") # Add as many users as you would like, separate them like so: "user1", "user2"...
+$caseCollaborators = ("Sample, User1") # Add as many users as you would like, separate them like so: "user1", "user2"...
 
 # Phishing Playbook Assignment
 $casePlaybook = "Phishing"
 # Assign the playbookwhen the case ThreatScore reaches or exceeds casePlaybookThreat
-$casePlaybookThreat = 2
+$casePlaybookThreat = 0
 
 
 # Set to true if internal e-mail addresses resolve to user@xxxx.onmicrosoft.com.  Typically true for test or lab 365 environments.
@@ -101,12 +103,6 @@ $pieLogLevel = "debug"
 $pieLogVerbose = "True"
 $pluginLogLevel = "debug"
 
-# Set your local organization's e-mail format
-# 1 = firstname.lastname@example.com
-# 2 = FLastname@example.com - First Initial of First Name, full Last Name
-# 3 = FirstnameLastname@example.com
-$orgEmailFormat = 2
-
 
 # ================================================================================
 # Third Party Analytics
@@ -114,80 +110,31 @@ $orgEmailFormat = 2
 
 # For each supported module, set the flag to $true and enter the associated API key
 
-# Auto Quarantine or Auto Ban?
-$autoQuarantine = $false # Auto quarantine and/or ban the sender
-$subjectAutoQuarantine = $false # Auto quarantine and create a case if the email matches the subject line regex check
-$autoBan = $false # Auto blacklist known-bad senders
-$threatThreshold = 5 # Actions run when the threat score is greater than the 'threatThreshold' below
-
 # General Link Analysis - No API key required and enabled by default
 $linkRegexCheck = $true
-$shortLink = $false
-$sucuri = $false
-$getLinkInfo = $false
-$spearInspector = $true
-
-# Comodo Valkarie
-$comodoValkarie = $false
-$comodoApiKey = ""
-
-# Domain Tools
-$domainTools = $false
-$DTapiUsername = ""
-$DTapiKey = ""
-
-# OpenDNS
-$openDNS = $false
-$openDNSkey =""
 
 # VirusTotal
-$virusTotal = $false
-$virusTotalAPI = ""
+$virusTotal = $true
 # Determines rate limiting for Virus Total.  Set to $false if commercial license is in use to permit more than 4 queries per minute.
 $virusTotalPublic = $true
 
 
 # URL Scan
-$urlscan = $false
-$urlscanAPI = ""
+$urlscan = $true
 #Maximum number of URLs to submit
 $urlscanMax = "5"
-
-# URL Void
-$urlVoid = $false
-$urlVoidIdentifier = ""
-$urlVoidKey = ""
-
-# PhishTank.com
-$phishTank = $false
-$phishTankAPI = ""
 
 # 365 SafeLinks URL Trace
 $safelinkTrace = $false
 
 # Shodan.io
-$shodan = $false
-$shodanAPI = ""
+$shodan = $true
 # Set the required threatScore required for plugin.  
-$shodanInitThreat = 2
-
-# Screenshot Machine
-$screenshotMachine = $false
-$screenshotKey = ""
-
-# Cisco AMP Threat Grid
-$threatGrid = $false
-$threatGridAPI = ""
+$shodanInitThreat = 0
 
 # Palo Alto Wildfire
 $wildfire = $false
 $wildfireAPI = ""
-
-# Wrike
-$wrike = $false
-$wrikeAPI = ""
-$wrikeFolder = ""
-$wrikeUser = ""
 
 
 # ================================================================================
@@ -221,7 +168,6 @@ $caseFolder = "$pieFolder\cases\"
 $tmpFolder = "$pieFolder\tmp\"
 $confFolder = "$pieFolder\conf\"
 $runLog = "$pieFolder\logs\pierun.txt"
-$pieLog = "$pieFolder\logs\pielog.txt"
 $log = $true
 try {
     $lastLogDate = [DateTime]::SpecifyKind((Get-Content -Path $lastLogDateFile),'Utc')
@@ -232,19 +178,16 @@ catch {
 
 
 #URL Whitelist
-$urlWhitelist = type "$confFolder\urlWhitelist.txt" | Sort -Unique | foreach { $_ + '*' }
-$domainWhitelist = (Get-Content $confFolder\urlWhitelist.txt) | %{ ([System.Uri]$_).Host } | Select-Object -Unique | foreach { $_ + '*' }
+$urlWhitelist = Get-Content "$confFolder\urlWhitelist.txt" | Sort-Object -Unique | ForEach-Object { $_ + '*' }
+$domainWhitelist = (Get-Content $confFolder\urlWhitelist.txt) | ForEach-Object{ ([System.Uri]$_).Host } | Select-Object -Unique | ForEach-Object { $_ + '*' }
 
 #Set VirusTotal runtime clock to null
 $vtRunTime = $null
 
-#Set global threat score
-$global:threatScore = 0
-
 # Email Parsing Varibles
 $boringFiles = @('jpg', 'png', 'ico', 'tif')    
 $boringFilesRegex = [string]::Join('|', $boringFiles)
-$interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'htm', 'js', 'rpm', 'bat', 'cmd', 'apk')
+$interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'htm', 'js', 'rpm', 'bat', 'cmd')
 $interestingFilesRegex = [string]::Join('|', $interestingFiles)
 
 
@@ -263,7 +206,6 @@ function GetSubfolders($Parent) {
 function Get-TimeStamp {
     return "[{0:MM/dd/yy} {0:HH:mm:ss}]" -f (Get-Date)
 }
-
 
 function Logger {
     Param(
@@ -356,49 +298,6 @@ function Get-Hash(
     return $result
 }
 
-function Create-Hash(
-    [string] $inputString, 
-    [String] $hashType = 'sha256')
-{
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($inputString)
-    $hashAlgorithm = [System.Security.Cryptography.HashAlgorithm]::Create($hashType)
-    $stringBuild = New-Object System.Text.StringBuilder
-
-    $hashAlgorithm.ComputeHash($bytes) | ForEach-Object { $null = $StringBuild.Append($_.ToString("x2")) } 
-
-    
-    $stringBuild.ToString() 
-}
-
-function Pie-Log {
-    Param(
-    $logMessageBody = $messageBody,
-    $logSender = $spammer,
-    $logRecipient = $reportedBy,
-    $logThreatScore = $threatScore,
-    $logCaseNum = $caseNumber
-    )
-    $cTime = "{0:MM/dd/yy} {0:HH:mm:ss}" -f (Get-Date)
-    #Create phishLog if file does not exist.
-    if ( $(Test-Path $pieLog -PathType Leaf) -eq $false ) {
-        Set-Content $pieLog -Value "PIE Powershell pielog for $date"
-        Write-Output "$cTime ALERT - No pieLog detected.  Created new $pieLog" | Out-File $pieLog
-    }
-
-    Try {
-        $logHash = Create-Hash -inputString $logMessageBody
-    } Catch {
-        Logger -logSev "e" -Message "Unable to create logMessageBody hash"
-    }
-    Try {
-        Write-Output "$cTime; $logCaseNum; $logThreatScore; $logHash; $logSender; $logRecipient" | Out-File $pieLog -Append
-    } Catch {
-        Logger -logSev -e -Message "Unable to append entry to pielog.  Case: $logCaseNum Hash: $logHash"
-    }
-}
-
-
-
 # Outlook Folder Parsing
 function GetSubfolders($Parent) {
     $folders = $Parent.Folders
@@ -409,606 +308,6 @@ function GetSubfolders($Parent) {
     }
 }
 
-
-# Function based Plugins
-function pluginValkarie {
-    Param (
-        [string]$cmdCheckDomain,
-        [string]$cmdCheckFileHash,
-        [string]$cmdCheckUri,
-        [Parameter(Mandatory=$true)]
-        [string]$cmdApiKey
-    )
-    $cmdVerdict = ""
-    $cmdResultID = ""
-    $cmdResultMessage = ""
-    $cmdReturnCode = ""
-    $cmdLastAnalysis = ""
-
-    # Domain provided by Valkyrie Verdict
-    if ($cmdCheckDomain) {
-        Logger -logSev "d" -Message "Domain Lookup: $cmdCheckDomain"
-        $cmdStatus = "== Comodo Valkarie - Domain Lookup ==\r\nDomain: $cmdCheckDomain\r\n"
-        $cmdUri = "https://verdict.valkyrie.comodo.com/api/v1/domain/query?domain=$cmdCheckDomain&analyze=true"
-
-        $InvokeRestMethodSplat = @{
-            Method      = 'GET'
-            Headers     = @{'x-api-key' = $cmdApiKey}
-            ContentType = 'application/json'
-            Body        = ''
-            Uri         = $cmdUri
-            ErrorAction = 'Stop'
-        }
-        
-        $Result = Invoke-RestMethod -Method Get -Headers @{'x-api-key' = $cmdApiKey} -ContentType 'application/json' -Uri $cmdUri -ErrorAction Stop
-        $cmdResultText = $Result.domain_result_text
-        $cmdResultID = $Result.domain_result_id
-        switch ( $cmdResultID) {
-            1{
-                #1 Not found
-                $cmdStatus += "Result Verdict: Domain not found\r\nResult ID: 1\r\n"
-                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Domain not found"
-            }
-            2{
-                #2 Safe
-                $cmdStatus += "Result Verdict: Safe\r\nResult ID: 2\r\n"
-                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Safe"
-            }
-            3{
-                #3 Suspicious
-                $cmdStatus += "Result Verdict: Suspicious\r\nResult ID: 3\r\n"
-                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Suspicious ThreatScore Add: 1"
-                $global:threatScore += 1
-            }
-            4{
-                #4 Phishing
-                $cmdStatus += "Result Verdict: Phishing\r\nResult ID: 4\r\n"
-                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Phishing ThreatScore Add: 10"
-                $global:threatScore += 10
-            }
-            5{
-                #5 Malware
-                $cmdStatus += "Result Verdict: Malware\r\nResult ID: 5\r\n"
-                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Malware ThreatScore Add: 10"
-                $global:threatScore += 10
-            }
-            6{
-                #6 Malicious
-                $cmdStatus += "Result Verdict: Malicious\r\nResult ID: 6\r\n"
-                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: Malicious ThreatScore Add: 5"
-                $global:threatScore += 5
-            }
-            7{
-                #7 PUA
-                $cmdStatus += "Result Verdict: PUA\r\nResult ID: 7\r\n"
-                Logger -logSev "i" -Message "Domain Lookup: $cmdCheckDomain Status: PUA"
-            }
-        }
-
-        $cmdResultMessage = $Result.result_message
-        $cmdReturnCode = $Result.return_code
-        switch ( $cmdReturnCode ) {
-            0{
-                #0 Success 
-                $cmdStatus += "\r\nAPI Return Message: Success\r\nAPI Return Code: 0\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Success"
-            }
-            3{
-                #3 Error in fls lookup service
-                $cmdStatus += "\r\nAPI Return Message: Error in fls lookup service\r\nAPI Return Code: 3\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error"
-            }
-            100{
-                #100 Requested API Key is invalid
-                $cmdStatus += "\r\nAPI Return Message: Requested API Key is invalid\r\nAPI Return Code: 100\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Invalid API Key"
-            }
-            101{
-                #101 API method is not allowed for this API key
-                $cmdStatus += "\r\nAPI Return Message: API method is not allowed for this API key\r\nAPI Return Code: 101\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API Method not permitted for provided API key"
-            }
-            102{
-                #102 Operation request limit is reached, please try again later
-                $cmdStatus += "\r\nAPI Return Message: Operation request limit is reached, please try again later\r\nAPI Return Code: 102\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API limit reached"
-            }
-            104{
-                #104 Daily operation request limit is reached, please try again later
-                $cmdStatus += "\r\nAPI Return Message: Daily operation request limit is reached, please try again later\r\nAPI Return Code: 104\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Daily operation request limit reached"
-            }
-            500{
-                #500 Internal server error occurred
-                $cmdStatus += "\r\nAPI Return Message: Internal server error occurred\r\nAPI Return Code: 500\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Internal server error"
-            }
-            default{
-                #Unknown error occurred
-                $cmdStatus += "\r\nAPI Return Message: An internal PIE error has occured\r\nAPI Return Code: Error\r\n"
-                Logger -logSev "e" -Message "API Return Message: An inernal PIE error has occured"
-            }
-        }
-    } elseif ($cmdCheckFileHash) {
-        $cmdStatus = "== Comodo Valkarie - File Hash Lookup ==\r\nHash: $cmdCheckFileHash\r\n"
-        $cmdUri = "https://verdict.valkyrie.comodo.com/api/v1/file/query/$cmdCheckFileHash"
-
-        $InvokeRestMethodSplat = @{
-            Method      = 'GET'
-            Headers     = @{'x-api-key' = $cmdApiKey}
-            ContentType = 'application/json'
-            Body        = ''
-            Uri         = $cmdUri
-            ErrorAction = 'Stop'
-        }
-        
-        $Result = Invoke-RestMethod -Method Get -Headers @{'x-api-key' = $cmdApiKey} -ContentType 'application/json' -Uri $cmdUri -ErrorAction Stop
-        $cmdVerdict = $Result.verdict
-        switch ( $cmdVerdict) {
-            -1{
-                #-1 Clean
-                $cmdStatus += "Result Verdict: Clean\r\nResult ID: -1\r\n"
-                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: Clean"
-            }
-            1{
-                #1 Malware
-                $cmdStatus += "Result Verdict: Malware\r\nResult ID: 1\r\n"
-                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: Malware Increase ThreatScore: 10"
-                $global:threatScore += 10
-            }
-            2{
-                #2 Not Available
-                $cmdStatus += "Result Verdict: Not Availabler\nResult ID: 2\r\n"
-                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: Not Available"
-            }
-            3{
-                #4 PUA
-                $cmdStatus += "Result Verdict: PUA\r\nResult ID: 3\r\n"
-                Logger -logSev "i" -Message "Hash Lookup: $cmdCheckFileHash Status: PUA"
-            }
-        }
-        $cmdLastAnalysis = $Result.last_analysis_date
-        $cmdResultID = $Result.url_result_id
-        $cmdResultMessage = $Result.result_message
-        $cmdReturnCode = $Result.return_code
-
-        switch ( $cmdReturnCode ) {
-            0{
-                #0 Success 
-                $cmdStatus += "\r\nAPI Return Message: Success\r\nAPI Return Code: 0\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Success"
-            }
-            1{
-                #1 SHA1 can not be empty and must be 40 characters in length
-                $cmdStatus += "\r\nAPI Return Message: SHA1 can not be empty and must be 40 characters in length\r\nAPI Return Code: 1\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: SHA1 can not be empty and must be 40 characters in length"
-            }
-            8{
-                #8 Requested file not found (Absent)
-                $cmdStatus += "\r\nAPI Return Message: Requested file not found\r\nAPI Return Code: 8\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Requested file not found"
-            }
-            9{
-                #9 File exists but verdict is not given, please check later
-                $cmdStatus += "\r\nAPI Return Message: File exists but verdict is not given, please check later\r\nAPI Return Code: 9\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: FIle exists but verdict is not given, please check later"
-            }
-            3{
-                #3 Error in fls lookup service
-                $cmdStatus += "\r\nAPI Return Message: Error in fls lookup service\r\nAPI Return Code: 3\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error in fls lookup service"
-            }
-            11{
-                #11 SHA256 Not found
-                $cmdStatus += "\r\nAPI Return Message: SHA256 not found in database\r\nAPI Return Code: 11\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error"
-            }
-            100{
-                #100 Requested API Key is invalid
-                $cmdStatus += "\r\nAPI Return Message: Requested API Key is invalid\r\nAPI Return Code: 100\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Requested API Key is invalid"
-            }
-            101{
-                #101 API method is not allowed for this API key
-                $cmdStatus += "\r\nAPI Return Message: API method is not allowed for this API key\r\nAPI Return Code: 101\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API method is not allowed for this API key"
-            }
-            102{
-                #102 Operation request limit is reached, please try again later
-                $cmdStatus += "\r\nAPI Return Message: Operation request limit is reached, please try again later\r\nAPI Return Code: 102\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Operation request limit is reached"
-            }
-            104{
-                #104 Daily operation request limit is reached, please try again later
-                $cmdStatus += "\r\nAPI Return Message: Daily operation request limit is reached, please try again later\r\nAPI Return Code: 104\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Daily operation request limit is reached"
-            }
-            500{
-                #500 Internal server error occurred
-                $cmdStatus += "\r\nAPI Return Message: Internal server error occurred\r\nAPI Return Code: 500\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Internal server error occured"
-            }
-            default{
-                #Unknown error occurred
-                $cmdStatus += "\r\nAPI Return Message: An internal PIE error has occured\r\nAPI Return Code: Error\r\n"
-                Logger -logSev "i" -Message "API Return Message: An internal PIE error has occured.  API Return Code: $cmdReturnCode"
-            }
-        }
-    } elseif ($cmdCheckUri) {
-        $cmdStatus = "== Comodo Valkarie - URI Lookup ==\r\nURI: $cmdCheckURI\r\n"
-        # Uri provided by Valkyrie Verdict
-        $cmdUri = "https://verdict.valkyrie.comodo.com/api/v1/url/query?url=$cmdCheckUri&analyze=true"
-
-        $InvokeRestMethodSplat = @{
-            Method      = 'GET'
-            Headers     = @{'x-api-key' = $cmdApiKey}
-            ContentType = 'application/json'
-            Body        = ''
-            Uri         = $cmdUri
-            ErrorAction = 'Stop'
-        }
-        
-        $Result = Invoke-RestMethod -Method Get -Headers @{'x-api-key' = $cmdApiKey} -ContentType 'application/json' -Uri $cmdUri -ErrorAction Stop
-        $cmdVerdict = $Result.url_result_text
-        $cmdResultID = $Result.url_result_id
-
-        switch ( $cmdResultID) {
-            1{
-                #1 Not found
-                $cmdStatus += "Result Verdict: URI not found\r\nResult ID: 1\r\n"
-                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: URI not found"
-            }
-            2{
-                #2 Safe
-                $cmdStatus += "Result Verdict: Safe\r\nResult ID: 2\r\n"
-                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Safe"
-            }
-            3{
-                #3 Suspicious
-                $cmdStatus += "Result Verdict: Suspicious\r\nResult ID: 3\r\n"
-                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Suspicious ThreatScore Add: 1"
-                $global:threatScore += 1
-            }
-            4{
-                #4 Phishing
-                $cmdStatus += "Result Verdict: Phishing\r\nResult ID: 4\r\n"
-                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Phishing ThreatScore Add: 10"
-                $global:threatScore += 10
-            }
-            5{
-                #5 Malware
-                $cmdStatus += "Result Verdict: Malware\r\nResult ID: 5\r\n"
-                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Malware ThreatScore Add: 10"
-                $global:threatScore += 10
-            }
-            6{
-                #6 Malicious
-                $cmdStatus += "Result Verdict: Malicious\r\nResult ID: 6\r\n"
-                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: Malicious ThreatScore Add: 5"
-                $global:threatScore += 5
-            }
-            7{
-                #7 PUA
-                $cmdStatus += "Result Verdict: PUA\r\nResult ID: 7\r\n"
-                Logger -logSev "i" -Message "URI Lookup: $cmdCheckDomain Status: PUA"
-            }
-        }
-
-        $cmdLastAnalysis = $Result.last_analysis_date
-        $cmdResultMessage = $Result.result_message
-        $cmdReturnCode = $Result.return_code
-        switch ( $cmdReturnCode ) {
-            0{
-                #0 Success 
-                $cmdStatus += "\r\nAPI Return Message: Success\r\nAPI Return Code: 0\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Success"
-            }
-            3{
-                #3 Error in fls lookup service
-                $cmdStatus += "\r\nAPI Return Message: Error in fls lookup service\r\nAPI Return Code: 3\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Error"
-            }
-            100{
-                #100 Requested API Key is invalid
-                $cmdStatus += "\r\nAPI Return Message: Requested API Key is invalid\r\nAPI Return Code: 100\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Invalid API Key"
-            }
-            101{
-                #101 API method is not allowed for this API key
-                $cmdStatus += "\r\nAPI Return Message: API method is not allowed for this API key\r\nAPI Return Code: 101\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API Method not permitted for provided API key"
-            }
-            102{
-                #102 Operation request limit is reached, please try again later
-                $cmdStatus += "\r\nAPI Return Message: Operation request limit is reached, please try again later\r\nAPI Return Code: 102\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: API limit reached"
-            }
-            104{
-                #104 Daily operation request limit is reached, please try again later
-                $cmdStatus += "\r\nAPI Return Message: Daily operation request limit is reached, please try again later\r\nAPI Return Code: 104\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Daily operation request limit reached"
-            }
-            500{
-                #500 Internal server error occurred
-                $cmdStatus += "\r\nAPI Return Message: Internal server error occurred\r\nAPI Return Code: 500\r\n"
-                Logger -logSev "i" -Message "API Return Code: $cmdReturnCode API Return Message: Internal server error"
-            }
-            default{
-                #Unknown error occurred
-                $cmdStatus += "\r\nAPI Return Message: An internal PIE error has occured\r\nAPI Return Code: Error\r\n"
-                Logger -logSev "e" -Message "API Return Message: An inernal PIE error has occured"
-            }
-        }
-    } else {
-        Write-Output "No paramaters provided to check against Comodo Valkarie"
-    }
-     
-    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$cmdStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-    $cmdStatus += "\r\n==== Comodo Valkarie - END ====\r\n"
-    Write-Output $cmdStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
-}
-
-
-# Spear Phishing Inspector
-function pluginSpearIns {
-    Param (
-        [string]$sprMessageBody = $messageBody,
-        [string]$sprDisplayName = $spammerDisplayName
-    )
-    Logger -logSev "s" -Message "Begin - Plugin - SpearPhish Inspector"
-    Logger -logSev "i" -Message "Pull list of keyNames from LR List API"
-
-
-
-    Logger -logSev "i" -Message "Inspecting message body for restricted names"
-    $sprReport = $false
-    $sprMatchType = $null
-    # Add logic for inspecting message body for specific names/values
-
-#force TLS v1.2 required by caseAPI
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-#Ignore invalid SSL certification warning
-add-type @"
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-public class TrustAllCertsPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(
-        ServicePoint srvPoint, X509Certificate certificate,
-        WebRequest request, int certificateProblem) {
-        return true;
-    }
-}
-"@
-[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-
-
-    $listURL = "https://" + $LogRhythmHost + "/lr-admin-api/"
-    $listToken = "Bearer $caseAPItoken"
-    $listHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $listHeaders.Add("Content-type", "application/json")
-    $listHeaders.Add("Authorization", $listToken)
-    $listHeaders.Add("pageSize", "1000")
-    $listHeaders.Add("maxItemsThreshold", "1000")
-
-    $listGUIDURL = "$listURL/lists/"
-    $output = Invoke-RestMethod -Uri $listGUIDURL -Headers $listHeaders -Method GET
-    $listGuid = @($output | Where-Object name -EQ "pieExecutiveWatchlist").guid
-    $listItemsURL = $listGUIDURL + $listGuid
-    $output = Invoke-RestMethod -Uri $listItemsURL -Headers $listHeaders -Method GET
-    [string[]]$keyNames = @($output).items.value
-
-
-    # Bring Back array list of keywords/names
-    # Split array for two additional variables, firstnames and lastnames
-    #[string[]]$keyNames = 'bob jones', 'Eric hart', 'jt3ct'
-    [string[]]$keyFNames = $null
-    [string[]]$keyLNames = $null
-    # Bring Back array list of keywords/names
-    # Split array for two additional variables, firstnames and lastnames
-    $keyNames | ForEach-Object {
-        [string[]]$keyFNames += $_.Split(" ")[0]
-        [string[]]$keyLNames += $_.Split(" ")[1] 
-    }
-    $sprStatus = "== SpearPhish Inspector ==\r\n"
-    # Run through messageBody inspecting for matches
-    If([string]$sprMessageBody -match ($keyNames -join "|")) {
-        $sprReport = $true
-        $sprMatchType = "full"
-        #This should be evald by security even if threatScore = 0
-        if ($threatScore -eq 0) {
-            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Message body\r\n\r\n"
-        } elseif ($threatScore -gt 0) {
-            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Message body\r\n\r\n"
-
-        }
-        Logger -logSev "i" -Message "Restricted name: $($Matches.Values) identified"
-    } elseif ($threatScore -gt 0 -AND ([string]$sprMessageBody -match ($keyFNames -join "|") -or ([string]$sprMessageBody -match ($keyLNames -join "|")))) {
-        #This should be evald by security due to threatScore and partial keyName match
-        $sprReport = $true
-        $sprMatchType = "partial"
-        $sprStatus += "Status: Partial name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Message body\r\n\r\n"
-        Logger -logSev "i" -Message "Threat Score greater than 2.  Restricted Partial Name: $($Matches.Values)"
-    } else {
-        Logger -logSev "i" -Message "No key names identified in messageBody"
-    }
-
-    # Run through Spammer Display name inspecting for matches
-    If([string]$sprDisplayName -match ($keyNames -join "|")) {
-        $sprReport = $true
-        $sprMatchType = "full"
-        #This should be evald by security even if threatScore = 0
-        if ($threatScore -eq 0) {
-            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Sender display name\r\n\r\n"
-        } elseif ($threatScore -gt 0) {
-            $sprStatus += "Status: Name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Sender display name\r\n\r\n"
-        }
-        Logger -logSev "i" -Message "Restricted name: $($Matches.Values) identified"
-    } elseif ($threatScore -gt 0 -AND ([string]$sprDisplayName -match ($keyFNames -join "|") -or ([string]$sprDisplayName -match ($keyLNames -join "|")))) {
-        #This should be evald by security due to threatScore and partial keyName match
-        $sprReport = $true
-        $sprMatchType = "partial"
-        $sprStatus = "Status: Partial name match\r\nMatched Name: $($Matches.Values)\r\nMatch Location: Sender display name\r\n\r\n"
-        Logger -logSev "i" -Message "Threat Score greater than 2.  Restricted Partial Name: $($Matches.Values)"
-    } else {
-        Logger -logSev "i" -Message "No key names identified in messageBody"
-    }
-
-    if ($sprReport -eq $true) {
-        if ($threatScore -eq 0) {
-            $global:threatScore += 2
-            $sprStatus += "Summary: No indicators of URL/File based threats present.  A $sprMatchType name match with monitor list has been identified.  Review e-mail message content for Social Engineering."
-            
-        } elseif ($threatScore -gt 0) {
-            $global:threatScore += 4
-            $sprStatus += "Summary: Indicators of URL/File based threats present.  A $sprMatchType name match with monitor list has been identified."
-        }
-
-        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$sprStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-        $sprStatus += "\r\n====  SpearPhish Inspector - END ====\r\n"
-        Write-Output $sprStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
-
-    }
-
-    # Add logic to hash message body.  Supply to LR function to validate if is member of existing list.  If not a member of list treat as unique
-
-    Logger -logSev "s" -Message "End - Plugin - SpearPhish Inspector"
-}
-
-function Submit-Hash {
-
-    Try {
-        $logHash = Create-Hash -inputString $messageBody
-    } Catch {
-        Logger -logSev "e" -Message "Unable to create logMessageBody hash"
-    }
-    #force TLS v1.2 required by caseAPI
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-#Ignore invalid SSL certification warning
-add-type @"
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-public class TrustAllCertsPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(
-        ServicePoint srvPoint, X509Certificate certificate,
-        WebRequest request, int certificateProblem) {
-        return true;
-    }
-}
-"@
-    [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-
-
-    $listURL = "https://" + $LogRhythmHost + "/lr-admin-api/"
-    $listToken = "Bearer $caseAPItoken"
-    $listHeaders = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $listHeaders.Add("Content-type", "application/json")
-    $listHeaders.Add("Authorization", $listToken)
-    $listHeaders.Add("pageSize", "1000")
-    $listHeaders.Add("maxItemsThreshold", "1000")
-    $listGUIDURL = "$listURL/lists/"
-    Try {    
-        $output = Invoke-RestMethod -Uri $listGUIDURL -Headers $listHeaders -Method GET
-    } Catch {
-        Logger -logSev "e" -Message "Failed to retrieve list of LogRhythm Lists"
-        Logger -logSev "d" -Message "$_.Exception.Message"
-    }
-    Logger -logSev "s" -Message "Begin - Submit Hash to LogRhythm List"
-    if ($threatScore -gt 0 ) {
-        Logger -logSev "i" -Message "ThreatScore greater than zero.  Submitting message body hash to LogRhythm"
-
-
-
-
-        $listGuid = @($output | Where-Object name -EQ "pieRiskyMessageHashes").guid
-        $listType = @($output | Where-Object name -EQ "pieRiskyMessageHashes").listType
-        $listUpdate = $listGUIDURL + $listGuid + "/items"
-        Logger -logSev "d" -Message "List Update URL: $listUpdate"
-        
-
-        #listType = GeneralValue/String
-        if($listType -eq "GeneralValue") {
-            $listType = "StringValue"
-            $listItemDataType = "String"
-        }
-        Logger -logSev "d" -Message "ListType: $listType ListItemDataType: $listItemDataType"
-		$exp_date = (Get-Date).AddDAys(7).ToString("yyyy-MM-dd")
-		
-	    $payload = @('{ "items": 
-[
-{
-	"displayValue": "List",
-	"expirationDate": "' + $exp_date + '",
-	"isExpired": false,
-	"isListItem": false,
-	"isPattern": false,
-	"listItemDataType": "' + $listItemDataType + '",
-	"listItemType": "' + $listType + '",
-	"value": "' + $logHash + '",
-	"valueAsListReference": {}
-}
-]}')
-			
-	    try {
-            
-		    $output = Invoke-RestMethod -Uri $listUpdate -Headers $listHeaders -Method POST -Body $payload
-            Logger -logSev "i" -Message "Hash $logHash successfully added to list: pieRiskyMessageHashes"
-
-	    } catch {
-            Logger -logSev "e" -Message "Hash $logHash failed append to list: pieRiskyMessageHashes"
-            Logger -logSev "d" -Message "$_.Exception.Message"
-	    }
-    } else {
-        Logger -logSev "i" -Message "Message Hash  submitted.  Message ThreatScore: $threatScore"
-
-        Logger -logSev "i" -Message "ThreatScore equal to zero.  Submitting benign hash to LogRhythm"
-
-
-
-
-        $listGuid = @($output | Where-Object name -EQ "pieBenignMessageHashes").guid
-        $listType = @($output | Where-Object name -EQ "pieRiskyMessageHashes").listType
-        $listUpdate = $listGUIDURL + $listGuid + "/items"
-        Logger -logSev "d" -Message "List Update URL: $listUpdate"
-        
-
-        #listType = GeneralValue/String
-        if($listType -eq "GeneralValue") {
-            $listType = "StringValue"
-            $listItemDataType = "String"
-        }
-        Logger -logSev "d" -Message "ListType: $listType ListItemDataType: $listItemDataType"
-		$exp_date = (Get-Date).AddDAys(7).ToString("yyyy-MM-dd")
-		
-	    $payload = @('{ "items": 
-[
-{
-	"displayValue": "List",
-	"expirationDate": "' + $exp_date + '",
-	"isExpired": false,
-	"isListItem": false,
-	"isPattern": false,
-	"listItemDataType": "' + $listItemDataType + '",
-	"listItemType": "' + $listType + '",
-	"value": "' + $logHash + '",
-	"valueAsListReference": {}
-}
-]}')
-			
-	    try {
-            
-		    $output = Invoke-RestMethod -Uri $listUpdate -Headers $listHeaders -Method POST -Body $payload
-            Logger -logSev "i" -Message "Hash $logHash successfully added to list: pieBenignMessageHashes"
-
-	    } catch {
-            Logger -logSev "e" -Message "Hash $logHash failed append to list: pieBenignMessageHashes"
-            Logger -logSev "d" -Message "$_.Exception.Message"
-	    }
-    }
-
-    Logger -logSev "s" -Message "End - Submit Hash to LogRhythm List"
-}
 
 # Link and Domain Verification
 $IPregex='(?<Address>((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))'
@@ -1098,25 +397,6 @@ if ( $log -eq $true) {
         Logger -logSev "a" -Message "No phishlog detected.  Created new $phishLog"
     }
 
-    # scrape all mail - ongiong log generation
-    # new scrape mail - by sslawter - LR Community
-    Logger -logSev "s" -Message "Begin processing messageTrace"
-    foreach ($page in 1..1000) {
-        $messageTrace = Get-MessageTrace -StartDate $lastlogDate -EndDate $date -Page $page | Select MessageTraceID,Received,*Address,*IP,Subject,Status,Size,MessageID
-        if ($messageTrace.Count -ne 0) {
-            $messageTraces += $messageTrace
-            Write-Verbose "Page #: $page"
-            Logger -logSev "i" -Message "Processing page: $page"
-        }
-        else {
-            break
-        }
-    }
-    $messageTracesSorted = $messageTraces | Sort-Object Received
-    $messageTracesSorted | Export-Csv $traceLog -NoTypeInformation -Append
-    ($messageTracesSorted | Select-Object -Last 1).Received.GetDateTimeFormats("O") | Out-File -FilePath $lastLogDateFile -Force -NoNewline
-    Logger -logSev "s" -Message "Completed messageTrace"
-
     # Search for Reported Phishing Messages
     Try {
         Logger -logSev "i" -Message "Loading previous reports to phishHistory"
@@ -1135,6 +415,7 @@ if ( $log -eq $true) {
         Logger -logSev "e" -Message "Unable to retrieve phishTrace from o365"
         Logger -logSev "s" -Message "PIE Execution Halting"
         Remove-PSSession $Session
+        exit 1
     }
     try {
         Logger -logSev "i" -Message "Writing phishTrace to $tmpLog"
@@ -1143,6 +424,7 @@ if ( $log -eq $true) {
         Logger -logSev "e" -Message "Unable to write file: $tmpLog"
         Logger -logSev "s" -Message "PIE Execution Halting"
         Remove-PSSession $Session
+        exit 1
     }
     
     Try {
@@ -1157,13 +439,11 @@ if ( $log -eq $true) {
     if ((get-item $tmpLog).Length -gt 0) {
         Logger -logSev "i" -Message "Populating newReports"
         $newReports = Compare-Object $phishHistory $phishNewReports -Property MessageTraceID -PassThru -IncludeEqual | Where-Object {$_.SideIndicator -eq '=>' } | Select-Object MessageTraceID,Received,SenderAddress,RecipientAddress,FromIP,ToIP,Subject,Status,Size,MessageID
-        Logger -logSev "d" -Message "newReports Sender Address: $($newReports.SenderAddress)"
+        Logger -logSev "d" -Message "NewReports Count: $($newReports.count)"
     } 
-    if ($newReports -eq $null) {
+    if ($null -eq $newReports) {
         Logger -logSev "i" -Message "No new reports detected"
-    }
-    if ($newReports -ne $null) {
-        Logger -logSev "i" -Message "New reports detected reported by $($newReports.RecipientAddress)"
+    } else {
         Logger -logSev "i" -Message "Connecting to local inbox"
         # Connect to local inbox #and check for new mail
         $outlookInbox = 6
@@ -1182,54 +462,20 @@ if ( $log -eq $true) {
             exit 1
         }
         Logger -logSev "i" -Message "Connecting to local inbox complete"
-        #$messages = $inbox.items
-        #$phishCount = $messages.count
         
         Logger -logSev "s" -Message "Begin processing newReports"
-        $newReports | ForEach-Object {
+
+        :newReport ForEach ($NewReport in $NewReports) {
+            Write-Host $NewReport
             # Setup Object for JSON output
             $jsonPie = New-Object -TypeName psobject -Property @{}
             # Track the user who reported the message
-            $reportedBy = $($_.SenderAddress)
-            $reportedSubject = $($_.Subject)
-            Logger -logSev "i" -Message "Sent By: $($_.SenderAddress)  reportedSubject: $reportedSubject"            
+            $reportedBy = $($NewReport.SenderAddress)
+            $reportedSubject = $($NewReport.Subject)
+            Logger -logSev "i" -Message "Sent By: $($NewReport.SenderAddress)  reportedSubject: $reportedSubject"            
             #Access local inbox and check for new mail
-            $messages = $inbox.items
-            $phishCount = $messages.count
-
-            Logger -logSev "s" -Message "Begin AutoQuarantine block"    
-            # AutoQuarantinebySubject
-            if ( $subjectAutoQuarantine -eq $true ) {
-
-                $subjectRegex = 'has\ been\ limited',
-                                'We\ have\ locked',
-                                'has\ been\ suspended',
-                                'unusual\ activity',
-                                'notifications\ pending',
-                                'your\ (customer\ )?account\ has',
-                                'your\ (customer\ )?account\ was',
-                                'Periodic\ Maintenance',
-                                'refund\ not\ approved',
-                                'account\ (is\ )?on\ hold',
-                                'wire\ transfer',
-                                'secure\ update',
-                                'temporar(il)?y\ deactivated',
-                                'verification\ required'
-                                #'new voice(\ )?mail'
-                #[string]
-                If($reportedSubject -match ($subjectRegex -join "|")) {
-                    # Autoquarantine!
-                    $subjectQuarantineNote = "Initiating auto-quarantine based on suspicious email subject RegEx matching. Copying messages to the Phishing inbox and hard-deleting from all recipient inboxes."
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$subjextQuarantineNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    sleep 5
-                    if ( $EncodedXMLCredentials ) {
-                        & $pieFolder\plugins\O365Ninja.ps1 -scrapeMail -sender "$spammer" -nuke -encodedXMLCredentials "$EncodedXMLCredentials" -socMailbox $socMailBox -LogRhythmHost $LogRhythmHost -caseAPItoken $caseAPItoken
-                    } else {
-                        & $pieFolder\plugins\O365Ninja.ps1 -scrapeMail -sender "$spammer" -nuke -username $username -password $password -socMailbox $socMailBox -LogRhythmHost $LogRhythmHost -caseAPItoken $caseAPItoken
-                    }
-                } 
-            }
-            Logger -logSev "s" -Message "End AutoQuarantine block"  
+            $OutlookMessages = $inbox.items
+            $phishCount = $OutlookMessages.count
 
             Logger -logSev "s" -Message "Begin Phishing Analysis block"
             Logger -logSev "d" -Message "Outlook Inbox Message Count: $phishCount"
@@ -1240,7 +486,7 @@ if ( $log -eq $true) {
                 # Extract reported messages
                 Logger -logSev "i" -Message "Parse Outlook messages"  
                 $fileHashes = $null
-                foreach($message in $messages){
+                foreach($message in $OutlookMessages){
                     Logger -logSev "d" -Message "Outlook Message Subject: $($message.Subject)"                      
                     #Clear variable $msubject
                     $msubject = $null
@@ -1265,9 +511,9 @@ if ( $log -eq $true) {
                     if ($($message.Subject) -eq $reportedSubject -OR $msubject -eq $reportedSubject) {
                         Logger -logSev "i" -Message "Outlook message.subject matched reported message Subject"
                         #Add $newReport to $phishLog
-                        Logger -logSev "i" -Message "Adding new report to phishLog for recipient $($_.RecipientAddress)"
+                        Logger -logSev "i" -Message "Adding new report to phishLog for recipient $($NewReport.RecipientAddress)"
                         Try {
-                            echo "`"$($_.MessageTraceID)`",`"$($_.Received)`",`"$($_.SenderAddress)`",`"$($_.RecipientAddress)`",`"$($_.FromIP)`",`"$($_.ToIP)`",`"$($_.Subject)`",`"$($_.Status)`",`"$($_.Size)`",`"$($_.MessageID)`"" | Out-File $phishLog -Encoding utf8 -Append
+                            echo "`"$($NewReport.MessageTraceID)`",`"$($NewReport.Received)`",`"$($NewReport.SenderAddress)`",`"$($NewReport.RecipientAddress)`",`"$($NewReport.FromIP)`",`"$($NewReport.ToIP)`",`"$($NewReport.Subject)`",`"$($NewReport.Status)`",`"$($NewReport.Size)`",`"$($NewReport.MessageID)`"" | Out-File $phishLog -Encoding utf8 -Append
                         } Catch {
                             Logger -logSev "e" -Message "Unable to write to: $phishLog"
                             Logger -logSev "s" -Message "PIE Execution Halting"
@@ -1277,7 +523,7 @@ if ( $log -eq $true) {
                         $msubject = $message.subject
                         $mBody = $message.body
                         Logger -logSev "s" -Message "Parsing attachments"
-                        $message.attachments| ForEach-Object {
+                        $message.attachments | ForEach-Object {
                             Logger -logSev "i" -Message "File $($_.filename)"
                             $attachment = $_.filename
                             $attachmentFull = $tmpFolder+$attachment
@@ -1305,7 +551,7 @@ if ( $log -eq $true) {
                         Logger -logSev "s" -Message "End Parsing attachments"
                         Logger -logSev "i" -Message "Moving Outlook message to COMPLETED folder"
                         $MoveTarget = $inbox.Folders.item("COMPLETED")
-                        [void]$message.Move($MoveTarget) 
+                        [void]$message.Move($MoveTarget)
                     }
                 }
                 Logger -logSev "i" -Message "Setting directoryInfo"
@@ -1317,7 +563,7 @@ if ( $log -eq $true) {
 
                     if ( ($reportedMsgAttachments -like "*.msg*") )  {
                         Logger -logSev "s" -Message "Processing .msg e-mail format"
-                        #foreach($attachment in $reportedMsgAttachments) {
+                        foreach($attachment in $reportedMsgAttachments) {
                             Logger -logSev "d" -Message "Processing reported e-mail attachments: $tmpFolder$attachment"
                             Logger -logSev "i" -Message "Loading submitted .msg e-mail"
                             $msg = $outlook.Session.OpenSharedItem("$tmpFolder$attachment")
@@ -1353,14 +599,13 @@ if ( $log -eq $true) {
                             #Load links
                             #Check if HTML Body exists else populate links from Text Body
                             Logger -logSev "i" -Message "Identifying URLs"
-                            if ( $($msg.Body.Length -gt 0) ) {
-                                Logger -logSev "d" -Message "Processing URLs from Message body - Last Effort Approach"
-                                $getLinks = $URLregex.Matches($($msg.Body)).Value.Split("") | findstr http
-                                
+                            if ( $($msg.HTMLBody.Length -gt 0) ) {
+                                Logger -logSev "d" -Message "Processing URLs from HTML body"
+                                $getLinks = $URLregex.Matches($($msg.HTMLBody)).Value.Split("") | findstr http
                             } 
                             else {
-                                Logger -logSev "a" -Message "Processing URLs from HTML body"
-                                $getLinks = $URLregex.Matches($($msg.HTMLBody)).Value.Split("") | findstr http
+                                Logger -logSev "a" -Message "Processing URLs from Message body - Last Effort Approach"
+                                $getLinks = $URLregex.Matches($($msg.Body)).Value.Split("") | findstr http
                             }
 
                                 
@@ -1416,7 +661,7 @@ if ( $log -eq $true) {
                             Logger -logSev "i" -Message "Spammer set to: $spammer"
                             $spammerDisplayName = $msg.SenderName
                             Logger -logSev "i" -Message "Spammer Display Name set to: $spammerDisplayName"
-                        #}
+                        }
                     } elseif ( ($reportedMsgAttachments -like "*.eml*") )  {
                         Logger -logSev "s" -Message "Processing .eml e-mail format"
                         $emlAttachment = $reportedMsgAttachments -like "*.eml*"
@@ -1467,8 +712,7 @@ if ( $log -eq $true) {
                         if ( $($msg.HTMLBody.Length -gt 0) ) {
                             Logger -logSev "d" -Message "Processing URLs from message HTML body"
                             $getLinks = $URLregex.Matches($($msg.HTMLBody)).Value.Split("") | findstr http
-                        } 
-                        else {
+                        } else {
                             Logger -logSev "a" -Message "Processing URLs from Text body - Last Effort Approach"
                             $getLinks = $URLregex.Matches($($msg.TextBody)).Value.Split("") | findstr http
                         }
@@ -1494,7 +738,7 @@ if ( $log -eq $true) {
                             # Get the filename and location
                             $attachedFileName = @(@($msg.Attachments | Select-Object Filename | findstr -v "FileName -") -replace "`n|`r").Trim() -replace '\s',''
                             Logger -logSev "i" -Message "Attached File Name: $attachedFileName"
-                            $msg.attachments|ForEach-Object {
+                            $msg.attachments | ForEach-Object {
                                 $attachmentName = $_.filename
                                 $attachmentFull = $tmpFolder+"/attachments/"+$attachmentName
                                 Logger -logSev "d" -Message "Attachment Name: $attachmentName"
@@ -1530,87 +774,15 @@ if ( $log -eq $true) {
                         Logger -logSev "i" -Message "Spammer set to: $spammer"
                         $spammerDisplayName = $msg.From.Split("<").Split(">")[0]
                         Logger -logSev "i" -Message "Spammer Display Name set to: $spammerDisplayName"
-                        }
+                    }
                 } else {
+                    # No PhishReport attachment, move e-mail to completed folder and move to next reported e-mail
                     Logger -logSev "s" -Message "Non .eml or .msg format"
-                    $subject = $msubject
-                    if ($msubject.Contains("FW:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("Fw:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("fw:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("FWD:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("Fwd:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("fwd:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("RE:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("Re:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    if ($msubject.Contains("re:") -eq $true) { $subject = @($msubject.Split(":")[1]).Trim() }
-                    
-                    $endUserName = $reportedBy.Split("@")[0]
-                
-                    if ($orgEmailFormat -eq 1) {
-                        Logger -logSev "i" -Message "E-mail format 1 - firstname.lastname@example.com"
-                        #E-mail format firstname.lastname@example.com
-                        $endUserLastName = $endUserName.Split(".")[1]
-                    } elseif ($orgEmailFormat -eq 2) {
-                        Logger -logSev "i" -Message "E-mail format 2 - FLastname@example.com"
-                        #Format 2 - FLastname@example.com
-                        $endUserLastName = $endUserName.substring(1) -replace '[^a-zA-Z-]',''
-                    } elseif ($orgEmailFormat -eq 3) {
-                        Logger -logSev "i" -Message "E-mail format 3 - FirstnameLastname@example.com"
-                        #Format 3 - FirstnameLastname@example.com
-                        $endUserLastName = ($endUserName -creplace  '([A-Z\W_]|\d+)(?<![a-z])',' $&').trim().Split(' ')[1]
-                    } else {
-                        Logger -logSev "e" -Message "Organization's E-mail Format must be set."
-                    }
-
-
-                    Logger -logSev "d" -Message "endUserName: $endUserName endUserLastName: $endUserLastName"
-                    $subjectQuery = "Subject:" + "'" + $subject + "'" + " Sent:" + $day
-                    $subjectQuery = "'" + $subjectQuery + "'"
-
-                    $searchMailboxResults = Search-Mailbox $endUserName -SearchQuery $subjectQuery -TargetMailbox "$socMailbox" -TargetFolder "PROCESSING" -LogLevel Full
-
-                    $targetFolder = $searchMailboxResults.TargetFolder
-                    $outlookAnalysisFolder = @(@($rootFolders.Folders | ?{$_.Name -match "PROCESSING"}).Folders).FolderPath | findstr -i $endUserLastName       
-            
-                    sleep 30 
-                    Write-Output $null > $analysisLog
-                    $companyDomain = $socMailbox.Split("@")[1]
-
-                    Get-MessageTrace -RecipientAddress $reportedBy -StartDate "$24Hours" -EndDate "$date" | Select MessageTraceID,Received,*Address,*IP,Subject,Status,Size,MessageID | Export-Csv $tmpLog -NoTypeInformation
-                    #$subject = $_.Split(",")[6]; $subject = $subject.Split('"')[1]
-                    Logger -logSev "d" -Message "Loading variable tmpLog"
-                    Try {
-                        Get-Content $tmpLog | ForEach-Object { $_ | Select-String -SimpleMatch $subject >> $analysisLog }
-                    } Catch {
-                        Logger -logSev "e" -Message "Unable to read content from variable tmpLog"
-                    }
-                
-                    (gc $analysisLog) | Where-Object {$_.trim() -ne "" } | set-content $analysisLog
-                    $spammer = Get-Content $analysisLog | ForEach-Object { $_.Split(",")[2]  } | Sort-Object | Get-Unique | findstr "@" | findstr -v "$companyDomain"
-                    $spammer = $spammer.Split('"')[1] | Sort-Object | Get-Unique
+                    #$targetFolder = $searchMailboxResults.TargetFolder
+                    $MoveTarget = $inbox.Folders.item("SPAM")
+                    [void]$msg.Move($MoveTarget)
+                    break newReport
                 }
-
-                # Pull more messages if the sender cannot be found (often happens when internal messages are reported)
-                if (-Not $spammer.Contains("@") -eq $true) {
-                    Write-Verbose "L691 - Spammer not found, looking for more."
-                    sleep 10
-                    Try {
-                        Write-Output $null > $analysisLog
-                    } Catch {
-                        Logger -logSev "e" -Message "Unable to write to file $analysisLog"
-                    }
-                
-                    $companyDomain = $socMailbox.Split("@")[1]
-
-                    Get-MessageTrace -RecipientAddress $reportedBy -StartDate $24Hours -EndDate $date | Select MessageTraceID,Received,*Address,*IP,Subject,Status,Size,MessageID | Export-Csv $tmpLog -NoTypeInformation
-                    #$subject = $_.Split(",")[6]; $subject = $subject.Split('"')[1]
-                    Write-Verbose "L697 - The subject var is equal to  $subject"
-                    Get-Content $tmpLog | ForEach-Object { $_ | Select-String -SimpleMatch $subject >> $analysisLog }
-                    (Get-Content $analysisLog) | Where-Object {$_.trim() -ne "" } | set-content $analysisLog
-                        
-                    $spammer = "Unknown"
-                }
-
             
                 Logger -logSev "s" -Message "Begin Link Processing"
                 [Reflection.Assembly]::LoadWithPartialName("System.Web") | Out-Null                       
@@ -1835,19 +1007,21 @@ if ( $log -eq $true) {
                         if ( $($scanLinks[$i]) -match "bit.ly/" -or $($scanLinks[$i]) -match "t.co/" -or $($scanLinks[$i]) -match "x.co/" -or $($scanLinks[$i]) -match "tiny.cc/" -or $($scanLinks[$i]) -match "goo.gl/" -or $($scanLinks[$i]) -match "tinyurl.com/") {
                             Logger -logSev "i" -Message "Shortlink detected: $($scanLinks[$i])"
                             $shortURL = $($scanLinks[$i])
+                            $ShortLinkCnt = 0
                             Do {
                                 Logger -logSev "d" -Message "Invoking headers.location request to: $shortURL"
                                 $shortExpanded = (Invoke-WebRequest -Uri $shortURL -MaximumRedirection 0 -ErrorAction Ignore).Headers.Location
                                 # Set the Final Destination when Expand URL returns no Location Header    
-                                if ($shortExpanded -eq $null) {
+                                if ($null -eq $shortExpanded) {
                                     $shortDestination = $shortURL
                                 } else {
                                     $shortDestination = $shortExpanded
                                 }
                                 # Reset the URL for the loop
                                 $shortURL = $shortExpanded
+                                $ShortLinkCnt += 1
                             # Define the Loop Condition
-                            } Until ($shortURL -eq $null)
+                            } Until ($null -eq $shortURL -or $ShortLinkCnt -ge 15)
                             
                             $shortList.Add( $($scanLinks[$i]) , $shortDestination)
                             
@@ -1922,8 +1096,6 @@ if ( $log -eq $true) {
                 Logger -logSev "s" -Message "End ShortLink parser"
                 
                 Logger -logSev "s" -Message "End Link Processing"
-                Logger -logSev "s" -Message "Begin Hash Processing"
-                Logger -logSev "i" -Message "Unique Hash Count: $($scanHashes.count)"
 
                 if ( $fileHashes ) {
                     ForEach ($hash in $fileHashes) {
@@ -1931,8 +1103,6 @@ if ( $log -eq $true) {
                         Write-Output $hashOutput >> $tmpFolder\hashes.txt
                     }
                 }
-                Logger -logSev "s" -Message "End Hash Processing"
-
 
                 # Create a case folder
                 Logger -logSev "s" -Message "Creating Case"
@@ -1955,7 +1125,7 @@ if ( $log -eq $true) {
                 }
                 # Support adding Network Share Location to the Case
                 $hostname = hostname
-                $networkShare = "\\\\$hostname\\PIE\\cases\\$caseID\\"
+                $networkShare = "\\$hostname\PIE\cases\$caseID\"
 
                 # Check for Attachments
                 if ($attachmentCount -gt 0) {
@@ -2030,13 +1200,13 @@ if ( $log -eq $true) {
                 if ( $spammer.Contains("@") -eq $true) {
                     Start-Sleep 5
                     Logger -logSev "i" -Message "365 - Collecting interesting messages"
-                    Get-MessageTrace -SenderAddress $spammer -StartDate $96Hours -EndDate $date | Select MessageTraceID,Received,*Address,*IP,Subject,Status,Size,MessageID | Export-Csv $analysisLog -NoTypeInformation
+                    Get-MessageTrace -SenderAddress $spammer -StartDate $96Hours -EndDate $date | Select-Object MessageTraceID,Received,*Address,*IP,Subject,Status,Size,MessageID | Export-Csv $analysisLog -NoTypeInformation
                 }
 
                 #Update here to remove onmicrosoft.com addresses for recipients
                 Logger -logSev "d" -Message "365 - Determining Recipients"
                 $recipients = Get-Content $analysisLog | ForEach-Object { $_.split(",")[3] }
-                $recipients = $recipients -replace '"', "" | Sort | Get-Unique | findstr -v "RecipientAddress"
+                $recipients = $recipients -replace '"', "" | Sort-Object | Get-Unique | findstr -v "RecipientAddress"
                 if ( $onMicrosoft -eq $true ) {
                     Logger -logSev "d" -Message "365 - Permitting onMicrosoft addresses"
                     $messageCount = Get-Content $analysisLog | findstr -v "MessageTraceId" | Measure-Object | Select-Object Count | findstr -v "Count -"
@@ -2127,20 +1297,23 @@ Case Folder:                 $caseID
                 if ( $spammer.Contains("@") -eq $true) {
                     Logger -logSev "d" -Message "LogRhythm API - Create Case with Sender Info"
                     $caseSummary = "Phishing email from $spammer was reported on $date by $reportedBy. The subject of the email is ($subject). Initial analysis shows that $messageCount user(s) received this email in the past 96 hours."
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -createCase "Phishing : $spammerName [at] $spammerDomain" -priority 3 -summary "$caseSummary" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                    $CaseDetails = New-LrCase -Name "Phishing : $spammerName [at] $spammerDomain" -Priority 3 -Summary $caseSummary
+                
                     Start-Sleep 3
                 } else {
                     Logger -logSev "d" -Message "LogRhythm API - Create Case without Sender Info"
                     $caseSummary = "Phishing email was reported on $date by $reportedBy. The subject of the email is ($subject). Initial analysis shows that $messageCount user(s) received this email in the past 96 hours."
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -createCase "Phishing Message Reported" -priority 3 -summary "$caseSummary" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                    $CaseDetails = New-LrCase -Name "Phishing Message Reported" -Priority 3 -Summary $caseSummary
+                    #& $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -createCase "Phishing Message Reported" -priority 3 -summary "$caseSummary" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
                 }
                 Try {
-                    $caseNumber = Get-Content "$pieFolder\plugins\case.txt"
+                    $caseNumber = $CaseDetails.number
                 } Catch {
                     Logger -logSev "e" -Message "Unable to read content $pieFolder\plugins\case.txt"
                 }
                 Try {
-                    Move-Item "$pieFolder\plugins\case.txt" "$caseFolder$caseID\"
+                    $caseNumber | Out-File "$caseFolder$caseID\case.txt"
+                    #Move-Item "$pieFolder\plugins\case.txt" 
                 } Catch {
                     Logger -logSev "e" -Message "Unable to move $pieFolder\plugins\case.txt to $caseFolder$caseID\"
                 }
@@ -2148,28 +1321,29 @@ Case Folder:                 $caseID
                 $caseURL = "https://$LogRhythmHost/cases/$caseNumber"
                 Logger -logSev "i" -Message "Case URL: $caseURL"
 
+                # Update case Earliest Evidence
+                Update-LrCaseEarliestEvidence -Id $caseNumber -Timestamp $NewReport.Received
             
                 # Tag the case as phishing
                 Logger -logSev "i" -Message "LogRhythm API - Applying case tag"
                 if ( $defaultCaseTag ) {
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -addTag "$defaultCaseTag" -casenum $caseNumber -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                }
-
-                # Adding and assigning the Case Owner
-                Logger -logSev "i" -Message "LogRhythm API - Assigning case owner"
-                if ( $caseOwner ) {
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -addCaseUser "$caseOwner" -casenum $caseNumber -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    Start-Sleep 1
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -changeCaseOwner "$caseOwner" -casenum $caseNumber -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                    $TagStatus = Get-LrTags -Name $defaultCaseTag -Exact
+                    Start-Sleep 0.2
+                    if (!$TagStatus) {
+                         $TagStatus = New-LrTag -Name $defaultCaseTag
+                         Start-Sleep 0.2
+                    }
+                    if ($TagStatus) {
+                         Add-LrCaseTags -Id $caseNumber -Tags $TagStatus.Number
+                         Logger -logSev "i" -Message "LogRhythm API - Adding tag $defaultCaseTag Tag Number $($TagStatus.number)"
+                         Start-Sleep 0.2
+                    }
                 }
 
                 # Adding and assigning other users
                 Logger -logSev "i" -Message "LogRhythm API - Assigning case collaborators"
                 if ( $caseCollaborators ) {
-                    foreach ( $i in $caseCollaborators ) {
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -addCaseUser "$i" -casenum $caseNumber -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                        Start-Sleep 1
-                    }
+                    Add-LrCaseCollaborators -Id $CaseNumber -Names $caseCollaborators
                 }
         
                 # Append Case Info to 
@@ -2180,77 +1354,12 @@ Case Folder:                 $caseID
                 Write-Output "Case URL:    $caseURL" >> "$caseFolder$caseID\spam-report.txt"
                 Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
 
-                # Copy raw logs to case
-                Logger -logSev "i" -Message "LogRhythm API - Copying raw logs to case"
-                
-                Try {
-                    $caseNote = Get-Content $analysisLog
-                } Catch {
-                    Logger -logSev "e" -Message "Unable to read content from analysisLog"
-                }
-                $caseNote = $caseNote -replace '"', ""
-                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Raw Phishing Logs: $caseNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                
                 # Recipients
                 Logger -logSev "i" -Message "LogRhythm API - Adding recipient info to case"
                 Try {
                     $messageRecipients = (Get-Content "$caseFolder$caseID\recipients.txt") -join ", "
                 } Catch {
                     Logger -logSev "e" -Message "Unable to read content from $caseFolder$caseID\recipients.txt"
-                }
-                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Email Recipients: $messageRecipients" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-
-                # Copy E-mail Message text body to case
-                Logger -logSev "i" -Message "LogRhythm API - Copying e-mail body text to case"
-                if ( $messageBody ) {
-                    $caseMessageBody = $($messageBody.Replace("`r`n","\r\n"))
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Submitted Email Message Body:\r\n$caseMessageBody" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                }
-                
-                # Write cleaned message subject note to case notes
-                if ($trueDat -eq $true) {
-                    Logger -logSev "i" -Message "LogRhythm API - Copying cleaned message subject note to case"
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Reported Message Subject was cleaned of special characters; see case notes folder for original.\r\n" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                }
-
-                # If multiple subjects, add subjects to case
-                if ( $($subjects.Length) -gt 1 ) {
-                    Logger -logSev "i" -Message "LogRhythm API - Copying summary of observed subjects to case"
-                    $caseSubjects = $subjects | Out-String
-                    $caseSubjects = $($caseSubjects.Replace("`r`n","\r\n"))
-                    $caseSubjects = $($caseSubjects.Replace("`"",""))
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Subjects from sender:\r\n$caseSubjects" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                }
-
-                # Observed Links
-                if ( $links) {
-                    Logger -logSev "i" -Message "LogRhythm API - Copying links to case"
-                    $messageLinks= (Get-Content "$caseFolder$caseID\links.txt") -join "\r\n"
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Links:\r\n$messageLinks" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                }
-
-                # Observed ShortLinks
-                if ( $shortList.count -gt 0 ) {
-                    Logger -logSev "i" -Message "LogRhythm API - Copying expanded ShortLinks to case"
-                    $shortStatus = "====INFO - ShortLinks Report====\r\n"
-                    foreach ($key in $shortList.keys ) {
-                        Logger -logSev "d" -Message "Origin URL: $key Destination URL:$($shortlist[$key])"
-                        $shortStatus += "$key expanded to $($shortlist[$key])\r\n"
-                    }
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$shortStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    Write-Output $shortStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
-                }
-
-                # Observed Files
-                if ( $fileHashes ) {
-                    Logger -logSev "i" -Message "LogRhythm API - Copying file hashes to case"
-                    Try {
-                        $caseHashes= (Get-Content "$caseFolder$caseID\hashes.txt") -join "\r\n"
-                    } Catch {
-                        Logger -logSev "e" -Message "Unable to read file $caseFolder$caseID\hashes.txt"
-                    }
-                    
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Hashes:\r\n$caseHashes" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
                 }
 
 
@@ -2261,447 +1370,122 @@ Case Folder:                 $caseID
 # ================================================================================
 #
                 Logger -logSev "s" -Message "Begin Third Party Plugins"
-                # WRIKE
-                if ( $wrike -eq $true ) {
-                    Logger -logSev "s" -Message "Begin Wrike"
-                    $secOpsSummary = "Phishing email from $spammer was reported on $date by $reportedBy. The subject of the email is ($subject). Initial analysis shows that $messageCount user(s) received this email in the past 48 hours. For more information, review the LogRhythm Case and Evidence folder."           
-
-                    # Security Operations Contact(s)
-                    & $pieFolder\plugins\wrike.ps1 -newTask "Case $caseNumber - Phishing email from $spammer" -wrikeUserName $wrikeUser -wrikeFolderName $wrikeFolder -wrikeDescription $secOpsSummary -accessToken $wrikeAPI
-            
-                    # Labs
-                    $labsSummary = "Phishing email from $spammer was reported on $date by $reportedBy. The subject of the email is ($subject). Initial analysis shows that $messageCount user(s) received this email in the past 48 hours. For more information, review the LogRhythm Case ($LogRhythmHost/cases/$caseNumber) and Evidence folder"
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Tasks Created in Wrike..." -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    Logger -logSev "s" -Message "End Wrike"
-                }
-
-                # SCREENSHOT MACHINE
-                if ( $screenshotMachine -eq $true ) {
-                    if ( $scanLinks.length -gt 0 ) {
-                        Logger -logSev "s" -Message "Begin Screenshot Machine"
-                        $scanLinks | ForEach-Object {
-                            $splitLink = ([System.Uri]"$_").Host
-
-                            Invoke-RestMethod "http://api.screenshotmachine.com/?key=$screenshotKey&dimension=1024x768&format=png&url=$_" -OutFile "$caseFolder$caseID\screenshot-$splitLink.png"
-                    
-                            $screenshotStatus = "Screenshot of hxxp://$splitLink website has been captured and saved with the case folder: screenshot-$splitLink.png"
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$screenshotStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                        }
-                        Logger -logSev "s" -Message "End Screenshot Machine"
-                    }
-                }
-
-                # GET LINK INFO
-                if ( $getLinkInfo -eq $true ) {
-                    if ( $scanLinks.length -gt 0 ) {
-                        Logger -logSev "s" -Message "Begin LinkInfo"
-                        $scanLinks | ForEach-Object { 
-                            $splitLink = $_.Split(":") | findstr -v http
-
-                            $linkInfo = iwr http://www.getlinkinfo.com/info?link=$_
-
-                            $linkInfo.RawContent | Out-File $tmpFolder\linkInfo.txt
-                            $isItSafe = Get-Content $tmpFolder\linkInfo.txt | Select-String -Pattern '((?![0]).) unsafe\)*'
-
-                            if ( $isItSafe ) {
-                                $getLinkInfoStatus = "UNSAFE LINK DETECTED (hxxp:$splitLink)! More Information: http://www.getlinkinfo.com/info?link=$_"
-                                $threatScore += 1
-                            } else {
-                                $getLinkInfoStatus = "Link (hxxp:$splitLink) is considered low risk. More Information: http://www.getlinkinfo.com/info?link=$_"
-                            }
-
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$getLinkInfoStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-
-                            Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "Get Link Info Status:" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output $getLinkInfoStatus >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-
-                            Remove-Item -Path $tmpFolder\linkInfo.txt
-                        }
-                        Logger -logSev "s" -Message "End LinkInfo"
-                    }
-                }
-
-
-                # PHISHTANK
-                if ( $phishTank -eq $true ) {
-                    if ( $scanLinks.length -gt 0 ) {
-                        Logger -logSev "s" -Message "Begin Phishtank"
-                        $scanLinks | ForEach-Object { 
-                        
-                            $splitLink = $_.Split(":") | findstr -v http
-
-                            if ( $phishTankAPI ) {
-                                $postParams = @{url="$_";format="xml";app_key="$phishTankAPI"}
-                            } else {
-                                $postParams = @{url="$_";format="xml"}
-                            }
-                            $phishTankResponse = Invoke-WebRequest -Uri http://checkurl.phishtank.com/checkurl/ -Method POST -Body $postParams
-                            Try {
-                                $phishTankResponse.Content | Out-File $tmpFolder\phishtankAnalysis.txt
-                            } Catch {
-                                Logger -logSev 'e' -Message "Unable to write file $tmpFolder\phishtankAnalysis.txt "
-                            }
-                            Try {
-                                [xml]$phishTankResults = Get-Content $tmpFolder\phishtankAnalysis.txt 
-                            } Catch {
-                                Logger -logSev 'e' -Message "Unable to read file $tmpFolder\phishtankAnalysis.txt "
-                            }
-                            
-                    
-                            $phishTankStatus = $phishTankResults.response.results.url0.in_database
-                    
-                            $phishTankDetails = $phishTankResults.response.results.url0.phish_detail_page
-                            $phishTankVerified = $phishTankResults.response.results.url0.verified
-                            $phishTankVerifiedOn = $phishTankResults.response.results.url0.verified_at
-
-                            if ( $phishTankStatus -eq "false" ) {
-                                $phishTankStatus = "Link (hxxp:$splitLink) is not present in the PhishTank Database."
-                            } elseif ( $phishTankStatus -eq "true" ) {
-                                $phishTankStatus = "MALICIOUS LINK (hxxp:$splitLink) was found in the PhishTank Database! More Information: $phishTankDetails"
-                                $threatScore += 1
-                            }
-
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$phishTankStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                
-                            Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "PhishTank Status:" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output $phishTankStatus >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                        
-                        }
-                        Try {
-                            Remove-Item $tmpFolder\phishtankAnalysis.txt 
-                        } Catch {
-                            Logger -logSev 'e' -Message "Unable to remove file $tmpFolder\phishtankAnalysis.txt "
-                        }
-                        Logger -logSev "s" -Message "End PhishTank"
-                    }
-                }
-
-                # SUCURI LINK ANALYSIS
-                if ( $sucuri -eq $true ) {
-                    if ( $scanDomains.length -gt 0 ) {
-                        Logger -logSev "s" -Message "Begin Sucuri"
-                        $scanDomains | ForEach-Object {
-                            Logger -logSev "i" -Message "Submitting domain: $_"
-                            
-                            $sucuriLink = "https://sitecheck.sucuri.net/results/$_"
-                            $sucuriAnalysis = iwr "https://sitecheck.sucuri.net/api/v3/?scan=$_&json"
-                            $sucuriAnalysis.RawContent | Out-File $tmpFolder\sucuriAnalysis.txt
-                            $skipLines = Get-Content $tmpFolder\sucuriAnalysis.txt | Measure-Object -Line
-                            $sucuriResults = Get-Content $tmpFolder\sucuriAnalysis.txt | select -Skip $skipLines.Lines | ConvertFrom-Json
-                            $sucuriStatus = "==== INFO - SUCURI ====\r\nDomain scanned: $_\r\n"
-                            #Check for blacklisted status
-                            if ( $sucuriResults.blacklists -ne $null ) {
-                                $itBlacklisted = $true
-                                $blVendor = $sucuriResults.blacklists.vendor
-                                $blURL = $sucuriResults.blacklists.info_url
-                            }
-                            #Check for malware status
-                            if ( $sucuriResults.warnings.security.malware -ne $null ) {
-                                $itMalicious = $true
-                                $malwareInfo = $sucuriResults.warnings.security.malware
-                            }
-                            #Check for spammer status
-                            if ( $sucuriResults.warnings.security.spam -ne $null ) {
-                                $itSuspicious = $true
-                                $susInfo = $sucuriResults.warnings.security.spam
-                            }
-
-                            #Build report info
-                            if ( $itBlacklisted -eq $true ) {
-                                $sucuriStatus += "\r\nALERT: Blacklisted Link Reported by:\r\n"
-                                if ($blVendor -is [array] ) {
-                                    for ($n=0; $n -lt $blVendor.Length; $n++) {
-                                        $sucuriStatus += $blVendor[$n]+" - "+$blURL[$n]+"\r\n"
-                                    }
-                                } else {
-                                    $sucuriStatus += $blVendor+" - "+$blURL+"\r\n"
-                                }
-
-                                $sucuriStatus += "\r\n"
-                                $threatScore += 1
-                            } 
-                            
-                            if ( $itMalicious -eq $true ) {
-                            
-                                $sucuriStatus += "\r\nALERT: Malware Reported!\r\n"
-                                if ($malwareInfo -is [array] ) {
-                                    for ($n=0; $n -lt $malwareInfo.Length; $n++) {
-                                        $sucuriStatus += "Type: "+$malwareInfo[$n].type+"\r\n"+$malwareInfo[$n].msg+"\r\n\r\n"
-                                    }
-                                } else {
-                                    $sucuriStatus += "Type: "+$malwareInfo.type+"\r\n"+$malwareInfo.msg+"\r\n\r\n"
-                                }
-                                $threatScore += 1
-                            }
-
-                            if ( $itSuspicious -eq $true ) {
-                            
-                                $sucuriStatus += "\r\nALERT: Spammer Reported!\r\n"
-                                for ($n=0; $n -lt $susInfo.Length; $n++) {
-                                    $sucuriStatus += "Type: "+$susInfo[$n].type+"\r\nDetails:"+$susInfo[$n].info_url+"\r\n\r\n"
-                                }
-                                $sucuriStatus += "\r\n"
-                                $threatScore += 1
-                            }
-
-                            if ( !$itBlacklisted -eq $true -and !$itMalware -eq $true -AND !$itSuspicious -eq $true ) {
-                                $sucuriStatus += "Sucuri has determined this link is clean.\r\n\r\n"
-                            }
-                            
-                            #Submit report info
-                            $sucuriStatus += "Last scanned by Sucuri on $($sucuriResults.scan.last_scan).\r\nFull details available here: $sucuriLink."
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$sucuriStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                            $sucuriStatus += "\r\n**** END - SUCURI ****\r\n\r\n"
-                            Write-Output $sucuriStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
-                            
-                            #Cleanup
-                            Remove-Item -Path $tmpFolder\sucuriAnalysis.txt
-                            $itSuspicious = $false
-                            $itMalicious = $false
-                            $itBlacklisted = $false
-                            
-                        }
-                        Logger -logSev "s" -Message "End Sucuri"
-                    }
-                }
 
                 # VIRUS TOTAL - Plugin Block
                 if ( $virusTotal -eq $true ) {
-                    if ( $virusTotalAPI ) {
-                        Logger -logSev "s" -Message "Begin VirusTotal"
-                        if ( $scanDomains.length -gt 0 ) {
-                            $scanDomains | ForEach-Object {
-                                #Set VirusTotal API clock
-                                if ($vtRunTime -eq $null) {
-                                    Logger -logSev "d" -Message "Setting Initial VT Runtime"
+                    Logger -logSev "s" -Message "Begin VirusTotal"
+                    if ( $scanDomains.length -gt 0 ) {
+                        $scanDomains | ForEach-Object {
+                            #Set VirusTotal API clock
+                            if ($vtRunTime -eq $null) {
+                                Logger -logSev "d" -Message "Setting Initial VT Runtime"
+                                $vtRunTime = (Get-Date)
+                                $vtQueryCount = 0
+                            } else {
+                                $vtTestTime = (Get-Date)
+                                $vtTimeDiff = New-TimeSpan -Start $vtRunTime -End $vtTestTime
+                                #If the time differene is greater than 4, reset the API use clock to current time.
+                                if ($vtTimeDiff.Minutes -gt 0 ) {
+                                    Logger -logSev "d" -Message "VT Runtime Greater than 1, resetting runtime position"
                                     $vtRunTime = (Get-Date)
                                     $vtQueryCount = 0
+                                }
+                            }
+                            Logger -logSev "d" -Message "Submitting Domain $_"
+                            #Public API use vs Commercial logic block
+                            if ( $virusTotalPublic -eq $true ) {
+                                $vtQueryCount = $vtQueryCount + 1
+                                if ($vtQueryCount -lt 5) {
+                                    Logger -logSev "d" -Message "Submitting Domain#: $vtQueryCount Domain: $_"
+                                    $vtResponse = Get-VtDomainReport -Domain $_
+                                    $vtResponseCode = $vtResponse.response_code
                                 } else {
                                     $vtTestTime = (Get-Date)
                                     $vtTimeDiff = New-TimeSpan -Start $vtRunTime -End $vtTestTime
-                                    #If the time differene is greater than 4, reset the API use clock to current time.
                                     if ($vtTimeDiff.Minutes -gt 0 ) {
-                                        Logger -logSev "d" -Message "VT Runtime Greater than 1, resetting runtime position"
+                                        #If the time difference between time values is greater than 1, new submissions can be made.  Reset the API's run clock to now.
                                         $vtRunTime = (Get-Date)
-                                        $vtQueryCount = 0
-                                    }
-                                }
-                                $vtStatus = "====INFO - Virus Total Domain====\r\n"
-
-                                Logger -logSev "d" -Message "Submitting Domain $_"
-                                $postParams = @{apikey="$virusTotalAPI";domain="$_";}
-
-                                #Public API use vs Commercial logic block
-                                if ( $virusTotalPublic -eq $true ) {
-                                    $vtQueryCount = $vtQueryCount + 1
-                                    if ($vtQueryCount -lt 5) {
+                                        $vtQueryCount = 1
                                         Logger -logSev "d" -Message "Submitting Domain#: $vtQueryCount Domain: $_"
-                                        $vtResponse = iwr http://www.virustotal.com/vtapi/v2/domain/report -Method GET -Body $postParams
-                                        $vtResponse = $vtResponse.Content | ConvertFrom-Json
+                                        $vtResponse = Get-VtDomainReport -Domain $_
                                         $vtResponseCode = $vtResponse.response_code
                                     } else {
-                                        $vtTestTime = (Get-Date)
-                                        $vtTimeDiff = New-TimeSpan -Start $vtRunTime -End $vtTestTime
-                                        if ($vtTimeDiff.Minutes -gt 0 ) {
-                                            #If the time difference between time values is greater than 1, new submissions can be made.  Reset the API's run clock to now.
-                                            $vtRunTime = (Get-Date)
-                                            $vtQueryCount = 1
-                                            Logger -logSev "d" -Message "Submitting Domain#: $vtQueryCount Domain: $_"
-                                            $vtResponse = iwr http://www.virustotal.com/vtapi/v2/domain/report -Method GET -Body $postParams
-                                            $vtResponse = $vtResponse.Content | ConvertFrom-Json
-                                            $vtResponseCode = $vtResponse.response_code
-                                        } else {
-                                            #Set the vtResponseCode to -1.  -1 is a self defined value for exceeding the API limit.
-                                            $vtResponseCode = -1
-                                        }
+                                        #Set the vtResponseCode to -1.  -1 is a self defined value for exceeding the API limit.
+                                        $vtResponseCode = -1
                                     }
-                                } elseif ( $virusTotalPublic -eq $false ) {
-                                    #If running under a commercial license, API call you like >:)
-                                    $vtResponse = iwr http://www.virustotal.com/vtapi/v2/domain/report -Method GET -Body $postParams
-                                    $vtResponse = $vtResponse.Content | ConvertFrom-Json
-                                    $vtResponseCode = $vtResponse.response_code
                                 }
-                            
-
-                                if ($vtResponseCode -eq 1) {
-                                    Logger -logSev "i" -Message "Virus Total Response Code: 1, Results returned on domain."
-                                    $vtLink = "https://www.virustotal.com/#/domain/$_"
-                    
-                                    [System.Collections.ArrayList]$vtDomainUrls = $vtResponse.detected_urls
-                                    $vtStatus += "Scanned Domain: $_\r\n"
-                                    if ($vtResponse."Alexa domain info" -ne $null) {
-                                        $vtStatus += "Alexa Info: "+$vtResponse."Alexa domain info"+"\r\n"
-                                    }
-                                    if ($vtResponse."Webutation domain info" -ne $null) {
-                                        $vtStatus += "Webutation Score: "+$vtResponse."Webutation domain info"."Safety score"+"  Verdict: "+$vtResponse."Webutation domain info".Verdict+"\r\n"
-                                    }
-                                    if ($vtResponse."TrendMicro category" -ne $null) {
-                                        $vtStatus += "TrendMicro Category: "+$vtResponse."TrendMicro category"+"\r\n"
-                                    }
-                                    if ($vtResponse."Forcepoint ThreatSeeker category" -ne $null) {
-                                        $vtStatus += "Forcepoint Category: "+$vtResponse."Forcepoint ThreatSeeker category"+"\r\n"
-                                    }
-
-
-                                    #Step through domain for URL array.
-                                    for ($n=0; $n -lt $vtDomainUrls.Count; $n++) {                     
-                                        for ($i=0; $i -lt $scanLinks.Count  ; $i++) {
-                                            if ($($vtDomainUrls[$n].url) -eq $scanLinks[$i]) {
-                                                Logger -logSev "d" -Message "Matched URL"
-                                                $vtStatus += "\r\nMatched URL: "+$vtDomainUrls[$n].url+"\r\n"
-                                                if ( $vtDomainUrls[$n].positives -lt 2 ) {
-                                
-                                                    $vtStatus += "The url has been marked benign.\r\n"
-                                                    Logger -logSev "i" -Message "Benign URL $($vtDomainUrls[$n].url)"
-                                    
-                                                } elseif ( $vtDomainUrls[$n].positives -gt 1 ) {
-                                                    $vtStatus += "ALERT: This sample has been flagged by "+$vtDomainUrls[$n].positives+"/"+$vtDomainUrls[$n].total+" Anti Virus engines.\r\nScan Date: "+$vtDomainUrls[$n].scan_date+"\r\n"
-                                                    #If the url is found on the domain, and hosts malicious content increase the threatScore by the number of positives reported.
-                                                    $threatScore += [int]$vtDomainUrls[$n].positives
-                                                    Logger -logSev "a" -Message "Malicious URL $($vtDomainUrls[$n].url)"
-                                                }
-                                                $vtDomainUrls.RemoveAt($n)
-                                            }                 
-                                        }
-                                        if ( $vtDomainUrls[$n].positives -gt 2 ) {
-                                            $tempThreat = [int]$vtDomainUrls[$n].positives
-                                            $vtStatus += "\r\nALERT: A domain sample has been flagged by "+$vtDomainUrls[$n].positives+"/"+$vtDomainUrls[$n].total+" Anti Virus engines.\r\nURL: "+$vtDomainUrls[$n].url+"\r\nScan Date: "+$vtDomainUrls[$n].scan_date+"\r\n\r\n"
-                                            Logger -logSev "a" -Message "Malicious URL hosted by Domain: $($vtDomainUrls[$n].url)"
-                                        }
-
-                                    }
-                                    if ( $tempThreat -gt 0 ) {
-                                        #If the domain hosts malicious content at other URLs outside of the specific URLs contained within the e-mail, increase threat by 1
-                                        $threatScore += 1
-                                    } elseif ($vtDomainUrls.Count -gt 0) {
-                                        $vtStatus += "\r\nDomain URL Summary: Virus Total holds "+$vtDomainUrls.Count+" entries each with benign sample results."+"\r\n"
-                                    }
-
-                                    $vtStatus += "\r\nVirusTotal report: $vtLink"
-                                } elseif ($vtResponseCode -eq 0) {
-                                    Logger -logSev "i" -Message "Response Code: 0, Domain not found in VT Database"
-                                    $vtStatus += "\r\nDomain`: $_ not found in VirusTotal database.\r\n"
-                                } elseif ($vtResponseCode -eq -1) {
-                                    Logger -logSev "i" -Message "Response Code: -1, Rate limit exceeded for public API use."
-                                    $vtStatus += "\r\nDomain`: $_ not submitted.  Rate limit exceeded for public API use.\r\n"
-                                } else {
-                                    Logger -logSev "e" -Message "Response Code: -1, VirusTotal File Plugin Error."
-                                    $vtStatus += "\r\nA PIE Plugin error has occured for this plugin.  Please contact your administrator.\r\n"
-                                }
-                                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$vtStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                                $vtStatus += "\r\n====END - VirusTotal Domain====\r\n"
-                                Write-Output $vtStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
-                                                            
-                                #cleanup vars
-                                $vtResponseCode = ""
-                                $vtStatus = ""
-                                $vtPositives = ""
-                                $vtResponse = ""
-                                $vtFName = ""
-                                $vtHash = ""
-                                $tempThreat = ""
+                            } elseif ( $virusTotalPublic -eq $false ) {
+                                #If running under a commercial license, API call you like >:)
+                                $vtResponse = Get-VtDomainReport -Domain $_
+                                $vtResponseCode = $vtResponse.response_code
                             }
-                            Logger -logSev "s" -Message "End Virus Total Domain Plugin"
-                        } 
-                        if ( $fileHashes.Length -gt 0 ) {
-                            $fileHashes | ForEach-Object {
-                                #Set VirusTotal API clock
-                                if ($vtRunTime -eq $null) {
-                                    Logger -logSev "d" -Message "Setting Initial VT Runtime"
+                            
+                            if ($VtResponse) {
+                                $VtCaseNote = $vtResponse | Format-VtTextOutput
+                                Add-LrNoteToCase -Id $CaseNumber -Text $VtCaseNote
+                                write-output $VtCaseNote >> "$caseFolder$caseID\spam-report.txt"
+                            }
+                        }
+                        Logger -logSev "s" -Message "End Virus Total Domain Plugin"
+                    } 
+                    if ( $fileHashes.Length -gt 0 ) {
+                        $fileHashes | ForEach-Object {
+                            #Set VirusTotal API clock
+                            if ($vtRunTime -eq $null) {
+                                Logger -logSev "d" -Message "Setting Initial VT Runtime"
+                                $vtRunTime = (Get-Date)
+                                $vtQueryCount = 0
+                            } else {
+                                $vtTestTime = (Get-Date)
+                                $vtTimeDiff = New-TimeSpan -Start $vtRunTime -End $vtTestTime
+                                #If the time differene is greater than 4, reset the API use clock to current time.
+                                if ($vtTimeDiff.Minutes -gt 0 ) {
+                                    Logger -logSev "d" -Message "VT Runtime Greater than 1, resetting runtime position"
                                     $vtRunTime = (Get-Date)
                                     $vtQueryCount = 0
+                                }
+                            }
+                            $vtFName = Split-Path -Path $($_.path) -Leaf
+                            $vtHash = [string]$($_.hash)
+
+                            Logger -logSev "i" -Message "Submitting file: $vtFName Hash: $vtHash"
+                            $postParams = @{apikey="$virusTotalAPI";resource="$vtHash";}
+                            
+                            #Public API use vs Commercial logic block
+                            if ( $virusTotalPublic -eq $true ) {
+                                $vtQueryCount = $vtQueryCount + 1
+                                Logger -logSev "d" -Message "Query Count: $vtQueryCount"
+                                if ($vtQueryCount -lt 5) {
+                                    Logger -logSev "d" -Message "Query Count Less than 5"
+                                    $vtResponse = Get-VtHashReport -Hash $vtHash
+                                    $vtResponseCode = $vtResponse.response_code
                                 } else {
                                     $vtTestTime = (Get-Date)
                                     $vtTimeDiff = New-TimeSpan -Start $vtRunTime -End $vtTestTime
-                                    #If the time differene is greater than 4, reset the API use clock to current time.
                                     if ($vtTimeDiff.Minutes -gt 0 ) {
-                                        Logger -logSev "d" -Message "VT Runtime Greater than 1, resetting runtime position"
+                                        #If the time difference between time values is greater than 4, new submissions can be made.  Reset the API's run clock to now.
                                         $vtRunTime = (Get-Date)
-                                        $vtQueryCount = 0
-                                    }
-                                }
-                                $vtFName = Split-Path -Path $($_.path) -Leaf
-                                $vtHash = [string]$($_.hash)
-
-                                Logger -logSev "i" -Message "Submitting file: $vtFName Hash: $vtHash"
-                                $postParams = @{apikey="$virusTotalAPI";resource="$vtHash";}
-                                
-                                #Public API use vs Commercial logic block
-                                if ( $virusTotalPublic -eq $true ) {
-                                    $vtQueryCount = $vtQueryCount + 1
-                                    if ($vtQueryCount -lt 5) {
-                                        $vtResponse = iwr http://www.virustotal.com/vtapi/v2/file/report -Method POST -Body $postParams
+                                        $vtResponse = Get-VtHashReport -Hash $vtHash
+                                        $vtResponseCode = $vtResponse.response_code
                                     } else {
-                                        $vtTestTime = (Get-Date)
-                                        $vtTimeDiff = New-TimeSpan -Start $vtRunTime -End $vtTestTime
-                                        if ($vtTimeDiff.Minutes -gt 0 ) {
-                                            #If the time difference between time values is greater than 4, new submissions can be made.  Reset the API's run clock to now.
-                                            $vtRunTime = (Get-Date)
-                                            $vtResponse = iwr http://www.virustotal.com/vtapi/v2/file/report -Method POST -Body $postParams
-                                        } else {
-                                            #Set the vtResponseCode to -1.  -1 is a self defined value for exceeding the API limit.
-                                            $vtResponseCode = -1
-                                        }
+                                        Logger -logSev "d" -Message "Setting vtResponseCode to -1"
+                                        #Set the vtResponseCode to -1.  -1 is a self defined value for exceeding the API limit.
+                                        $vtResponseCode = -1
                                     }
-                                } elseif ( $virusTotalPublic -eq $false ) {
-                                    #If running under a commercial license, API call you like >:)
-                                    $vtResponse = iwr http://www.virustotal.com/vtapi/v2/file/report -Method POST -Body $postParams
-                                } 
-
-                                $vtStatus = "====INFO - Virus Total File====\r\n"
-
-                                $vtResponse = $vtResponse.Content | ConvertFrom-Json
-                                $vtResponseCode = $vtResponse.response_code
-                                if ($vtResponseCode -eq 1) {
-                                    $vtLink = $vtResponse.permalink
-
-                                    $vtPositives = [int]$vtResponse.positives
-                                    $VTTotal = $vtResponse.total
-                                    $VTScanDate = $vtResponse.scan_date
-
-                                    if ( $vtPositives -lt 1 ) {
-                                        $vtStatus += "Status: Benign\r\nFile`: $vtFName\r\nSHA256: $vtHash\r\n\r\nThe sample has been marked benign by $VTTotal Anti Virus engines."
-                                        Logger -logSev "i" -Message "File Benign"
-                                    
-                                    } elseif ( $vtPositives -gt 0 ) {
-                                        $vtStatus += "Status: Malicious\r\nFile`: $vtFName\r\nSHA256: $vtHash\r\n\r\nALERT: This sample has been flagged by $vtPositives/$VTTotal Anti Virus engines."
-                                        $threatScore += $vtPositives
-                                        Logger -logSev "a" -Message "File Malicious"
-                                    }
-
-                                    $vtStatus += "\r\n\r\nLast scanned by Virus Total on $VTScanDate.\r\nFull details available here: $vtLink."
-                                    Write-Host "Entry found in VT database"
-                                } elseif ($vtResponseCode -eq 0) {
-                                    Logger -logSev "i" -Message "File not found in VT Database"
-                                    $vtStatus += "\r\nFile`: $vtFName not found in VirusTotal database.\r\n"
-                                } else {
-                                    Logger -logSev "e" -Message "VirusTotal File Plugin Error"
-                                    $vtStatus += "\r\nA PIE Plugin error has occured for this plugin.  Please contact your administrator.\r\n"
                                 }
-                                
-                                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$vtStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                                $vtStatus += "\r\n====END - VirusTotal FILE====\r\n"
-                                Write-Output $vtStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
-                                #cleanup vars
-                                $vtStatus = ""
-                                $vtPositives = ""
-                                $vtResponse = ""
-                                $vtFName = ""
-                                $vtHash = ""
+                            } elseif ( $virusTotalPublic -eq $false ) {
+                                #If running under a commercial license, API call you like >:)
+                                $vtResponse = Get-VtHashReport -Hash $vtHash
+                                $vtResponseCode = $vtResponse.response_code
+                            } 
+
+                            if ($VtResponse) {
+                                $VtCaseNote = $vtResponse | Format-VtTextOutput
+                                Add-LrNoteToCase -Id $CaseNumber -Text $VtCaseNote
+                                write-output $VtCaseNote >> "$caseFolder$caseID\spam-report.txt"
                             }
-                            Logger -logSev "s" -Message "End VirusTotal File Plugin"
                         }
-                    } else {
-                        Logger -logSev "e" -Message "VirusTotal Plugin Enabled but no API key provided"
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "VirusTotal API key required to check / submit samples." -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                        Logger -logSev "s" -Message "End VirusTotal File Plugin"
                     }
                     Logger -logSev "s" -Message "End VirusTotal Plugin"
                 }
@@ -2717,10 +1501,29 @@ Case Folder:                 $caseID
 
                         $scanLinks | Select-Object -First $urlscanMax | ForEach-Object {
                             Logger -logSev "i" -Message "Scanning: $_"
-                            & $pieFolder\plugins\URLScan.ps1 -key $urlscanAPI -link $_ -caseID $caseID -caseFolder "$caseFolder" -pieFolder "$pieFolder" -logRhythmHost $logRhythmHost -caseAPItoken $caseAPItoken -networkShare $networkShare
+                            $UrlScanRequest = New-UrlScanRequest -Url $_
+                            #Determine when scan has completed
+                            $EscapeCount = 0
+                            DO {
+                                Logger -logSev "i" -Message "UrlScan Sleep - Waiting 5 seconds before checking on Scan Report status"
+                                Start-Sleep 5
+                                try {
+                                    $UrlscanResults = Get-UrlScanReport -uuid $UrlScanRequest.uuid
+                                } catch {
+                                    $UrlscanResults = $_.Exception.Response.StatusCode.Value__
+                                }
+                                Write-Host "$UrlscanResults"
+                                $EscapeCount += 1
+                            } Until ($($UrlscanResults.data) -or $EscapeCount -le 25)
 
+                            
+                            $UrlscanCaseReport = $UrlscanResults | Format-UrlscanTextOutput -TargetName $_
+                            Write-Host $UrlScanCaseReport
+
+                            Write-Output $UrlscanCaseReport  >> "$caseFolder$caseID\spam-report.txt"
+                            Add-LrNoteToCase -Id $CaseNumber -Note $UrlscanCaseReport 
                         }
-
+                        <#  Update to support better pipeline + LR.Tools VT cmdlets
                         if ((Test-Path -Path "$caseFolder$caseID\urlScan\hashes.txt" -PathType Leaf)) {
                             # Wildfire Integration: submits file hashes for URL direct download files
                             if ( $wildfire -eq $true ) {
@@ -2738,7 +1541,7 @@ Case Folder:                 $caseID
                                         Logger -logSev "i" -Message "Submitting file: $wfFname Hash: $wfHash"
                                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
                                         Write-Output "Wildfire Analysis: File: $wfFName Hash: $wfHash" >> "$caseFolder$caseID\spam-report.txt"
-                                        & $pieFolder\plugins\Wildfire.ps1 -key $wildfireAPI -fileHash $wfHash -fileName $wfFName -caseID $caseID -caseFolder "$caseFolder" -pieFolder "$pieFolder" -logRhythmHost $logRhythmHost -caseAPItoken $caseAPItoken
+                                        & $pieFolder\plugins\Wildfire.ps1 -key $wildfireAPI -fileHash $wfHash -fileName $wfFName -caseID $caseID -caseFolder "$caseFolder" -pieFolder "$pieFolder"
                                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
 
                                     }
@@ -2795,7 +1598,7 @@ Case Folder:                 $caseID
                                             #If running under a commercial license, API call you like >:)
                                             $vtResponse = iwr http://www.virustotal.com/vtapi/v2/file/report -Method POST -Body $postParams
                                         } 
-                                        $vtStatus = "====INFO - urlScan to Virus Total File====\r\nurlScan observed file download link.  File hash for downloadable file submitted to Virus Total.\r\n"
+                                        $vtStatus = "====INFO - urlScan to Virus Total File====`r`nurlScan observed file download link.  File hash for downloadable file submitted to Virus Total.`r`n"
 
                                         $vtResponse = $vtResponse.Content | ConvertFrom-Json
                                         $vtResponseCode = $vtResponse.response_code
@@ -2807,31 +1610,32 @@ Case Folder:                 $caseID
                                             $VTScanDate = $vtResponse.scan_date
 
                                             if ( $vtPositives -lt 1 ) {
-                                                $vtStatus += "Status: Benign\r\nFile`: $vtFName\r\nSHA256: $vtHash\r\n\r\nThe sample has been marked benign by $VTTotal Anti Virus engines."
+                                                $vtStatus += "Status: Benign`r`nFile`: $vtFName`r`nSHA256: $vtHash`r`n`r`nThe sample has been marked benign by $VTTotal Anti Virus engines."
                                                 Logger -logSev "i" -Message "File Benign"
                                     
                                             } elseif ( $vtPositives -gt 0 ) {
-                                                $vtStatus += "Status: Malicious\r\nFile`: $vtFName\r\nSHA256: $vtHash\r\n\r\nALERT: This sample has been flagged by $vtPositives/$VTTotal Anti Virus engines."
+                                                $vtStatus += "Status: Malicious`r`nFile`: $vtFName`r`nSHA256: $vtHash`r`n`r`nALERT: This sample has been flagged by $vtPositives/$VTTotal Anti Virus engines."
                                                 $threatScore += $vtPositives
                                                 Logger -logSev "a" -Message "File Malicious"
                                             }
 
-                                            $vtStatus += "\r\n\r\nLast scanned by Virus Total on $VTScanDate.\r\nFull details available here: $vtLink."
+                                            $vtStatus += "`r`n`r`nLast scanned by Virus Total on $VTScanDate.`r`nFull details available here: $vtLink."
                                             Write-Host "Entry found in VT database"
                                         } elseif ($vtResponseCode -eq 0) {
                                             Logger -logSev "i" -Message "File not found in VT Database"
-                                            $vtStatus += "\r\nFile`: $vtFName not found in VirusTotal database.\r\n"
+                                            $vtStatus += "`r`nFile`: $vtFName not found in VirusTotal database.`r`n"
                                         } elseif ($vtResponseCode -eq -1) {
-                                            Logger -logSev "i" -Message "File not submitted to Virus Total.\r\nRate limit exceeded for public API use."
-                                            $vtStatus += "\r\nFile`: $vtFName not submitted.  Rate limit exceeded for public API use.\r\n"
+                                            Logger -logSev "i" -Message "File not submitted to Virus Total.`r`nRate limit exceeded for public API use."
+                                            $vtStatus += "`r`nFile`: $vtFName not submitted.  Rate limit exceeded for public API use.`r`n"
                                         } else {
                                             Logger -logSev "e" -Message "VirusTotal File Plugin Error"
-                                            $vtStatus += "\r\nA PIE Plugin error has occured for this plugin.  Please contact your administrator.\r\n"
+                                            $vtStatus += "`r`nA PIE Plugin error has occured for this plugin.  Please contact your administrator.`r`n"
                                         }
                                 
-                                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$vtStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                                        $vtStatus += "\r\n====END - VirusTotal File====\r\n"
-                                        Write-Output $vtStatus.Replace("\r\n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
+                                        #& $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$vtStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                                        Add-LrNoteToCase -Id $CaseNumber -Text $vtStatus
+                                        $vtStatus += "`r`n====END - VirusTotal File====`r`n"
+                                        Write-Output $vtStatus.Replace("`r`n","`r`n") >> "$caseFolder$caseID\spam-report.txt"
                                         #cleanup vars
                                         $vtStatus = ""
                                         $vtPositives = ""
@@ -2843,205 +1647,13 @@ Case Folder:                 $caseID
                                 }
                             }
                         }
+                        #>
 
                         Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                        Try {
-                            Remove-Item -Path $tmpFolder\urlscanAnalysis.txt
-                        } Catch {
-                            Logger -logSev "e" -Message "Unable to remove file $tmpFolder\urlscanAnalysis.txt"
-                        }
-                        Try {
-                            Remove-Item -Path $tmpFolder\urlscanRequest.txt
-                        } Catch {
-                            Logger -logSev "e" -Message "Unable to remove file $tmpFolder\urlscanRequest.txt"
-                        }
                         Logger -logSev "s" -Message "End urlScan"
                     }
                 }
-
-                # DOMAIN TOOLS
-                if ( $domainTools -eq $true ) {
-                    Logger -logSev "s" -Message "Begin Domain Tools"
-
-                    $domainIgnoreList = "bit.ly","ow.ly","x.co","goo.gl","logrhythm.com","google.com"
-                    $threshold = (Get-Date).AddMonths(-3)
-                    $threshold = $threshold.ToString("yyy-MM-dd")
-
-                    if ( $scanLinks.length -gt 0 ) {
-                        $scanLinks | ForEach-Object {
-                            If([string]$_ -match ($domainIgnoreList -join "|")) {
-                                Logger -logSev "i" -Message "Nothing to analyze"
-                                Write-Output "Nothing to analyze"
-                            } else {
-
-                                $domain = @(([System.Uri]"$_").Host).Split(".")[-2]
-                                $dn = @(([System.Uri]"$_").Host).Split(".")[-1]
-                                $domain = "$domain.$dn"
-
-                                try {
-                                    $domainDetails = Invoke-RestMethod "http://api.domaintools.com/v1/$domain/?api_username=$DTapiUsername&api_key=$DTapiKey"
-                                } catch {
-                                    Logger -logSev "e" -Message "Unable to retrieve data from api.domaintools.com"
-                                    Write-Error "fail..."
-                                }
-
-                                $createdDate = $domainDetails.response.registration.created
-                                $updatedDate = $domainDetails.response.registration.updated
-
-                                $events = $domainDetails.response.history.registrar.events
-
-                                if ( $createdDate ) {
-
-                                    if($threshold -le $createdDate){
-                                        $domainToolsUpdate = "DomainTools: Domain ($domain) is less than 3-months old - likely malicious! Registered on $createdDate. Threat Score Elevated."
-                                        #Rescore Candidate
-                                        $threatScore += 1
-                                        Logger -logSev "i" -Message "Domain is less than 3-months old - likely malicious! Registered on $registrationTime. Threat Score Elevated."
-                                    }else{
-                                        $domainToolsUpdate = "DomainTools: Domain ($domain) has been registered since $createdDate - low risk"
-                                        Logger -logSev "i" -Message "Domain has been registered since $registrationTime - low risk"
-                                    }
-
-                                } else {
-
-                                    $registrationTime = $domainDetails.response.history.registrar.earliest_event
-
-                                    if($threshold -le $registrationTime){
-                                        $domainToolsUpdate = "DomainTools: Domain is less than 3-months old - likely malicious! Registered on $registrationTime. Threat Score Elevated."
-                                        #Rescore Candidate
-                                        $threatScore += 1
-                                        Logger -logSev "i" -Message "Domain is less than 3-months old - likely malicious! Registered on $registrationTime. Threat Score Elevated."
-                                    }else{
-                                        $domainToolsUpdate = "DomainTools: Domain has been registered since $registrationTime - low risk"
-                                        Logger -logSev "i" -Message "Domain has been registered since $registrationTime - low risk"
-                                    }
-                                }
-                            }
-                
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$domainToolsUpdate" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-
-                            Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "Domain Tools Status:" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output $domainToolsUpdate >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                        }
-                        Logger -logSev "s" -Message "End Domain Tools"
-                    }
-                }
-
-                # OPEN DNS
-                if ( $openDNS -eq $true ) {
-                    if ( $scanLinks.length -gt 0 ) {
-                        Logger -logSev "s" -Message "Start OpenDNS"
-                        $scanLinks | ForEach-Object {
-
-                            $splitLink = ([System.Uri]"$_").Host
-
-                            $OpenDNSurl = "https://investigate.api.umbrella.com/domains/categorization/$splitLink`?showLabels"
-                            $result = Invoke-RestMethod -Headers @{'Authorization' = "Bearer $openDNSkey"} -Uri $OpenDNSurl | ConvertTo-Json -Depth 4
-                            $newresult = $result | ConvertFrom-Json
-                            $score = $newresult.$splitLink.status
-
-                            if ($score -eq -1){
-                                $OpenDNSStatus = "MALICIOUS DOMAIN - OpenDNS analysis determined $splitLink to be unsafe!"
-                                $threatScore += 1
-                            }elseif ($score -eq 0) {
-                                $OpenDNSStatus = "OpenDNS - Uncategorized Domain: $splitLink"
-                            } elseif ($score -eq 1) {
-                                $OpenDNSStatus = "OpenDNS - Benign Domain: $splitLink"
-                            }
-
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$OpenDNSStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-
-                            Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "OpenDNS Status:" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output $OpenDNSStatus >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                        }
-                        Logger -logSev "s" -Message "End Domain Tools"
-                    }
-                }
-
-                # URL VOID
-                if ( $urlVoid -eq $true ) {
-                    if ( $scanLinks.length -gt 0 ) {
-                        Logger -logSev "s" -Message "Begin URLVoid"
-                        $scanLinks | ForEach-Object {
-                
-                            $splitLink = ([System.Uri]"$_").Host
-                    
-                            $urlVoidResponse = Invoke-RestMethod http://api.urlvoid.com/$urlVoidIdentifier/$urlVoidKey/host/$splitLink/
-                            $urlVoidCheckResponse = $urlVoidResponse.response.details.ip.addr
-                            $urlVoidError = $urlVoidResponse.response.error
-
-                            if ( $urlVoidError ) {
-                                $urlVoidStatus = "URL VOID Error: API Key is Invalid"
-                            } else {
-
-                                if ( $urlVoidCheckResponse ) {
-
-                                    $checkDetection = $urlVoidResponse.response.detections
-
-                                    if ( $checkDetection ) {
-
-                                        $urlVoidEngines = $urlVoidResponse.response.detections.engines.engine
-                                        $urlVoidCount = $urlVoidResponse.response.detections.count
-
-                                        $urlVoidStatus = "URL VOID: MALWARE DETECTED on (hxxp://$splitLink)! Detection Count: $urlVoidCount. Engines: $urlVoidEngines"
-                                        $threatScore += [int]$urlVoidCount
-
-                                    } else {
-
-                                        $urlVoidStatus = "URL VOID: Safe link detected (hxxp://$splitLink)"
-                                    }
-
-                                    $urlVoidIPdetails = $urlVoidResponse.response.details.ip
-
-                                } else {
-
-                                    $urlVoidResponse = Invoke-RestMethod http://api.urlvoid.com/$urlVoidIdentifier/$urlVoidKey/host/$splitLink/scan/
-
-                                    if ( $urlVoidResponse.response.action_result -eq "OK" ) {
-
-                                        $checkDetection = $urlVoidResponse.response.detections
-
-                                        if ( $checkDetection ) {
-
-                                            $urlVoidEngines = $urlVoidResponse.response.detections.engines.engine
-                                            $urlVoidCount = $urlVoidResponse.response.detections.count
-
-                                            $urlVoidStatus = "URL VOID: New Scan - MALWARE DETECTED on (hxxp://$splitLink)! Detection Count: $urlVoidCount. Engines: $urlVoidEngines"
-                                            $threatScore += [int]$urlVoidCount
-
-                                        } else {
-
-                                            $urlVoidStatus = "URL VOID: New scan - Safe link detected (hxxp://$splitLink)"
-                                        }
-
-                                        $urlVoidIPdetails = $urlVoidResponse.response.details.ip
-
-                                    }
-
-                                }    
-                            }
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$urlVoidStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-
-                            Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "URL Void Domain Information (hxxp://$splitLink):" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output $urlVoidIPdetails >> "$caseFolder$caseID\spam-report.txt"
-                            Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                        }
-                        Logger -logSev "s" -Message "End URLVoid"
-                    }
-                }
-
 
                 # Wildfire
                 if ( $wildfire -eq $true ) {
@@ -3056,7 +1668,7 @@ Case Folder:                 $caseID
                             Logger -logSev "s" -Message "Submitting file: $wfFName Hash: $($_.hash)"
                             Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
                             Write-Output "Wildfire Analysis: File: $caseFolder$caseID\attachments\$wfFName Hash: $($_.hash)" >> "$caseFolder$caseID\spam-report.txt"
-                            & $pieFolder\plugins\Wildfire.ps1 -key $wildfireAPI -fileHash $($_.hash) -fileName $wfFName -caseID $caseID -caseFolder "$caseFolder" -pieFolder "$pieFolder" -logRhythmHost $logRhythmHost -caseAPItoken $caseAPItoken
+                            & $pieFolder\plugins\Wildfire.ps1 -key $wildfireAPI -fileHash $($_.hash) -fileName $wfFName -caseID $caseID -caseFolder "$caseFolder" -pieFolder "$pieFolder"
                             Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
 
                         }
@@ -3068,153 +1680,79 @@ Case Folder:                 $caseID
                     }
                 }
 
-                # Comodo Valkarie
-                if ( $comodoValkarie -eq $true ) {
-                    Logger -logSev "s" -Message "Begin Comodo Valkarie"
-                    if ( $fileHashes.Length -gt 0 ) {
-                        Logger -logSev "i" -Message "Inspecting File Hashes"
-
-                        $fileHashes | ForEach-Object {
-                            $comodoFileName = Split-Path -Path $($_.path) -Leaf
-                            pluginValkarie -cmdCheckFileHash $($_.hash) -cmdApiKey $comodoApiKey
-                            Logger -logSev "d" -Message "Submitting file: $comodoFileName Hash: $($_.hash)"
-                        }
-                    }
-                    if ( $scanLinks.length -gt 0 ) {
-                        Logger -logSev "i" -Message "Inspecting URLs"
-                        $scanLinks | ForEach-Object {
-                            #pluginValkarie -cmdCheckUri $_ -cmdApiKey $comodoApiKey
-                        }
-                    }
-                    if ( $scanDomains.length -gt 0 ) {
-                        Logger -logSev "i" -Message "Inspecting Domains"
-                        $scanDomains | ForEach-Object {
-                            pluginValkarie -cmdCheckDomain $_ -cmdApiKey $comodoApiKey
-                        }
-
-                    }
-                    Logger -logSev "s" -Message "End Comodo Valkarie"
-                }
-
-
-                # SHORT LINK ANALYSIS
-                if ( $shortLink -eq $true ) {
-                    if ( $scanLinks.length -gt 0 ) {
-                        Logger -logSev "s" -Message "Begin ShortLink Analysis"
-                        $scanLinks | ForEach-Object {
-
-                            if ( $_ -match "https://bit.ly" ) {
-                
-                                # bit.ly
-                                $shortLinkContent = iwr "$_+"
-                                $expandedLink = ($shortLinkContent.Content | findstr -i long_url).Split('"') | findstr -i "http https" | unique
-
-                                $splitLink = $expandedLink.Split(":") | findstr -v http
-
-                                $shortLinkStatus = "Shortened Link Detected! Metrics: $_+. Redirect: hxxp:$splitLink"
-
-                                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$shortLinkStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                            }
-
-                            if ( $_ -match "https://goo.gl" ) {
-                
-                                # goo.gl
-                                $shortLinkContent = iwr "$_+"
-                                $expandedLink = ($shortLinkContent.Content | findstr -i long_url).Split('"') | findstr -i "http https" | unique
-                                $splitLink = $expandedLink.Split(":") | findstr -v http
-
-                                $shortLinkStatus = "Shortened Link Detected! Metrics: $_+."
-
-                                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$shortLinkStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                            }
-
-                            if ( $_ -match "http://x.co" ) {
-
-                                # x.co
-                                $splitLink = $_.Split(":") | findstr -v http
-                                $shortLinkStatus = "Machine Learning analysis has detected a possibly malicious link hxxp:$_."
-                                $threatScore += 1
-
-                                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$shortLinkStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                            }
-                        }
-                        Logger -logSev "s" -Message "End ShortLink Analysis"
-                    }
-                }
-
                 # Link RegEx Check
                 if ( $linkRegexCheck ) {
                     if ( $scanLinks.length -gt 0 ) {
                         Logger -logSev "s" -Message "Begin link RegEx Check"
                         $linkRegexList = '/wp-admin/',
-                                            '/wp-includes/',
-                                            '/wp-content/(?!\S{0,60}Campaign\S{0,2}\=)(?!\S{0,60}\.pdf[<\"\t\r\n])(?!\S{0,60}\.jpg[<"\t\r\n])',
-                                            'blocked\ your?\ online',
-                                            'suspicious\ activit',
-                                            'updated?\ your\ account\ record',
-                                            'Securely\ \S{3,4}\ one(\ )?drive',
-                                            'Securely\ \S{3,4}\ drop(\ )?box',
-                                            'Securely\ \S{3,4}\ Google\ Drive',
-                                            'sign\ in\S{0,7}(with\ )?\ your\ email\ address',
-                                            'Verify\ your\ ID\s',
-                                            'dear\ \w{3,8}(\ banking)?\ user',
-                                            'chase\S{0,10}\.html"',
-                                            '\b(?<=https?://)(www\.)?icloud(?!\.com)',
-                                            '(?<![\x00\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4A\x4B\x4C\x4D\x4E\x4F\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5A])appie\W',
-                                            '/GoogleDrive/',
-                                            '/googledocs?/',
-                                            '/Dropfile/',
-                                            'limit\ (and\ suspend\ )?your\ account',
-                                            '\b(?<=https?://)(?!www\.paypal\.com/)\S{0,40}pa?y\S{0,2}al(?!\S*\.com/)',
-                                            'sitey\.me',
-                                            'myfreesites\.net',
-                                            '/uploadfile/',
-                                            '/\S{0,3}outloo\S{0,2}k\S{1,3}\W',
-                                            '\b(?<=https?://webmail\.)\S{0,40}webmail\w{0,3}(?!/[0-9])(?!\S{0,40}\.com/)',
-                                            'owaportal',
-                                            'outlook\W365',
-                                            '/office\S{0,3}365/',
-                                            '-icloud\Wcom',
-                                            'pyapal',
-                                            '/docu\S{0,3}sign\S{1,4}/',
-                                            '/helpdesk/',
-                                            'pay\Sa\S{0,2}login',
-                                            '/natwest/',
-                                            '/dro?pbo?x/',
-                                            '%20paypal',
-                                            '\.invoice\.php',
-                                            'security-?err',
-                                            '/newdropbox/',
-                                            '/www/amazon',
-                                            'simplefileupload',
-                                            'security-?warning',
-                                            '-(un)?b?locked',
-                                            '//helpdesk(?!\.)',
-                                            '\.my-free\.website',
-                                            'mail-?update',
-                                            '\.yolasite\.com',
-                                            '//webmail(?!\.)',
-                                            '\.freetemplate\.site',
-                                            '\.sitey\.me',
-                                            '\.ezweb123\.com',
-                                            '\.tripod\.com',
-                                            '\.myfreesites\.net',
-                                            'mailowa',
-                                            '-icloud',
-                                            'icloud-',
-                                            'contabo\.net',
-                                            '\.xyz/',
-                                            'ownership\ validation\ (has\ )?expired',
-                                            'icloudcom',
-                                            '\w\.jar(?=\b)',
-                                            '/https?/www/',
-                                            '\.000webhost(app)?\.com',
-                                            'is\.gd/',
-                                            '\.weebly\.com',
-                                            '\.wix\.com',
-                                            'tiny\.cc/',
-                                            '\.joburg',
-                                            '\.top/'
+                                        '/wp-includes/',
+                                        '/wp-content/(?!\S{0,60}Campaign\S{0,2}\=)(?!\S{0,60}\.pdf[<\"\t`r`n])(?!\S{0,60}\.jpg[<"\t`r`n])',
+                                        'blocked\ your?\ online',
+                                        'suspicious\ activit',
+                                        'updated?\ your\ account\ record',
+                                        'Securely\ \S{3,4}\ one(\ )?drive',
+                                        'Securely\ \S{3,4}\ drop(\ )?box',
+                                        'Securely\ \S{3,4}\ Google\ Drive',
+                                        'sign\ in\S{0,7}(with\ )?\ your\ email\ address',
+                                        'Verify\ your\ ID\s',
+                                        'dear\ \w{3,8}(\ banking)?\ user',
+                                        'chase\S{0,10}\.html"',
+                                        '\b(?<=https?://)(www\.)?icloud(?!\.com)',
+                                        '(?<![\x00\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4A\x4B\x4C\x4D\x4E\x4F\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5A])appie\W',
+                                        '/GoogleDrive/',
+                                        '/googledocs?/',
+                                        '/Dropfile/',
+                                        'limit\ (and\ suspend\ )?your\ account',
+                                        '\b(?<=https?://)(?!www\.paypal\.com/)\S{0,40}pa?y\S{0,2}al(?!\S*\.com/)',
+                                        'sitey\.me',
+                                        'myfreesites\.net',
+                                        '/uploadfile/',
+                                        '/\S{0,3}outloo\S{0,2}k\S{1,3}\W',
+                                        '\b(?<=https?://webmail\.)\S{0,40}webmail\w{0,3}(?!/[0-9])(?!\S{0,40}\.com/)',
+                                        'owaportal',
+                                        'outlook\W365',
+                                        '/office\S{0,3}365/',
+                                        '-icloud\Wcom',
+                                        'pyapal',
+                                        '/docu\S{0,3}sign\S{1,4}/',
+                                        '/helpdesk/',
+                                        'pay\Sa\S{0,2}login',
+                                        '/natwest/',
+                                        '/dro?pbo?x/',
+                                        '%20paypal',
+                                        '\.invoice\.php',
+                                        'security-?err',
+                                        '/newdropbox/',
+                                        '/www/amazon',
+                                        'simplefileupload',
+                                        'security-?warning',
+                                        '-(un)?b?locked',
+                                        '//helpdesk(?!\.)',
+                                        '\.my-free\.website',
+                                        'mail-?update',
+                                        '\.yolasite\.com',
+                                        '//webmail(?!\.)',
+                                        '\.freetemplate\.site',
+                                        '\.sitey\.me',
+                                        '\.ezweb123\.com',
+                                        '\.tripod\.com',
+                                        '\.myfreesites\.net',
+                                        'mailowa',
+                                        '-icloud',
+                                        'icloud-',
+                                        'contabo\.net',
+                                        '\.xyz/',
+                                        'ownership\ validation\ (has\ )?expired',
+                                        'icloudcom',
+                                        '\w\.jar(?=\b)',
+                                        '/https?/www/',
+                                        '\.000webhost(app)?\.com',
+                                        'is\.gd/',
+                                        '\.weebly\.com',
+                                        '\.wix\.com',
+                                        'tiny\.cc/',
+                                        '\.joburg',
+                                        '\.top/'
                         $scanLinks | ForEach-Object { 
                             $splitLink = $_.Split(":") | findstr -v http
 
@@ -3225,7 +1763,8 @@ Case Folder:                 $caseID
                                 Write-Host "No RegEx matches for (hxxp:$splitLink) - potentially benign."
                             }
 
-                            & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$regExCheckStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                            #& $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$regExCheckStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                            Add-LrNoteToCase -Id $CaseNumber -Text $regExCheckStatus
 
                             Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
                             Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
@@ -3236,39 +1775,6 @@ Case Folder:                 $caseID
                         }
                         Logger -logSev "s" -Message "End Link Regex Check"
                     }
-                }
-
-                # THREAT GRID
-                if ( $threatGrid -eq $true ) {
-                    Logger -logSev "s" -Message "Begin ThreatGrid"
-                    if ( $files ) {
-                        # Update Case
-                        $caseNote = "The collected files are now being analyzed for risk using Cisco AMP Threat Grid..."
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$caseNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                
-                        $allAttachments = ls "$tmpFolder\attachments\"
-                        $allAttachments.Name | ForEach-Object { 
-                            & $pieFolder\plugins\ThreatGRID-PIE.ps1 -file "$tmpFolder\attachments\$_" -key $threatGridAPI -caseNumber $caseNumber -caseFolder "$caseFolder$caseID" -caseAPItoken $caseAPItoken -LogRhythmHost $LogRhythmHost
-                        }
-            
-                    } elseif ( $countLinks -gt 0 ) {
-                        # Update Case
-                        $caseNote = "The collected links are now being analyzed for risk using Cisco AMP Threat Grid..."
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$caseNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-
-                        $scanLinks | ForEach-Object { 
-                            & $pieFolder\plugins\ThreatGRID-PIE.ps1 -url "$_" -key $threatGridAPI -caseNumber $caseNumber -caseFolder "$caseFolder$caseID" -caseAPItoken $caseAPItoken -LogRhythmHost $LogRhythmHost
-                        }
-                    } else {
-                        # Nothing to do
-                        $caseNote = "No content for Cisco AMP Threat Grid to analyze..."
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$caseNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    }
-
-                    #$threatGridScore = "90"
-                    #$threatGridRisk = "HIGH RISK"
-                    #& $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "ThreatGRID Analysis Score: $threatGridScore ($threatGridRisk)" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    Logger -logSev "s" -Message "End ThreatGrid"
                 }
 
                 # SHODAN
@@ -3284,8 +1790,23 @@ Case Folder:                 $caseID
                             $scanDomains | ForEach-Object {
                                 Write-Output "Shodan Analysis: $_" >> "$caseFolder$caseID\spam-report.txt"
                                 Logger -logSev "i" -Message "Submitting domain: $_"
-                                & $pieFolder\plugins\Shodan.ps1 -key $shodanAPI -link $_ -caseID $caseID -caseFolder "$caseFolder" -pieFolder "$pieFolder" -logRhythmHost $logRhythmHost -caseAPItoken $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-    
+                                $ShodanHostLookup = Get-ShodanDnsHostname -Hostnames $_
+
+                                if ($null -ne $ShodanHostLookup) {
+                                    $ShodanHostLookup | Where-Object -Property $_ -Match $IPregex | Out-Null
+                                    $shodanIP = $Matches.Address
+                                } else {
+                                    $shodanIP = Resolve-DnsName -Name $_ -Type A
+                                }
+
+                                $IpStatus = Test-ValidIPv4Address -IP $shodanIP
+                                if ($IpStatus.IsValid -eq $True) {
+                                    $ShodanReport = Get-ShodanHostIp -IPAddress $shodanIP 
+                                    $ShodanCaseReport = $ShodanReport | Format-ShodanTextOutput -TargetName $_
+                                }
+                                Write-Output $ShodanCaseReport >> "$caseFolder$caseID\spam-report.txt"
+                                Add-LrNoteToCase -Id $CaseNumber -Note $ShodanCaseReport
+                                
                             }
     
                             Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
@@ -3299,7 +1820,7 @@ Case Folder:                 $caseID
                 }
 
                 Logger -logSev "s" -Message "End Third Party Plugins"
-                Logger -logSev "s" -Message "Begin Auto-Remediation Block"
+
                 # ADD SPAMMER TO LIST
                 if ($spamTracker -eq $true) {
                     if ( $spammerList ) {
@@ -3312,7 +1833,7 @@ Case Folder:                 $caseID
                                 & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Spammer ($spammer) added to Threat List ($spammerList)" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
                 
                             } else {
-                                $spammerStatus = "====PIE - Add Spammer to List====\r\nUnable to extract the spammer's e-mail. \r\nManual analysis of message is required."
+                                $spammerStatus = "====PIE - Add Spammer to List====`r`nUnable to extract the spammer's e-mail. `r`nManual analysis of message is required."
                                 & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase $spammerStatus -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
                 
                             }
@@ -3326,122 +1847,39 @@ Case Folder:                 $caseID
                     if ( $scanLinks.length -gt 0 ) {
                         Logger -logSev "s" -Message "Begin Safelink Trace"
                         $sltClear = $null
-                        $sltStatus = "== 365 Safelink Trace ==\r\n"
+                        $sltStatus = "== 365 Safelink Trace ==`r`n"
                         $scanLinks | ForEach-Object {
 
                             Logger -logSev "d" -Message "365 Safelinks - Inspecting URL: $_"
                             $sltResults = Get-UrlTrace -UrlOrDomain "$_"
                             if ( $sltResults ) {
-                                $sltStatus += "Trace report for URL: \r\n$_\r\n"
+                                $sltStatus += "Trace report for URL: `r`n$_`r`n"
                                 $sltResults | ForEach-Object {
-                                    $sltStatus += "Clicked On: $($_.Clicked) UTC | By recipient $($_.RecipientAddress)\r\n"
+                                    $sltStatus += "Clicked On: $($_.Clicked) UTC | By recipient $($_.RecipientAddress)`r`n"
                                     Logger -logSev "s" -Message "365 Safelinks - URL: $($_.Url) Date: $($_.Clicked) UTC By recipient $($_.RecipientAddress)"
                                 }
                             } else {
-                                $sltClear += "$_\r\n"
+                                $sltClear += "$_`r`n"
                                 Logger -logSev "i" -Message "365 Safelinks - No access record for URL: $_"
                             }
                             $sltResults = $null
                         }
                         if ($sltClear) {
-                            $sltStatus += "\r\nNo access recorded for the following URLs:\r\n$sltClear\r\n" 
+                            $sltStatus += "`r`nNo access recorded for the following URLs:`r`n$sltClear`r`n" 
                         }
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$sltStatus" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+
+                        Add-LrNoteToCase -Id $CaseNumber -Text $sltStatus
 
                         Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "Safelink Trace Status:" >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                        Write-Output $($slStatus.Replace("\r\n","`r`n")) >> "$caseFolder$caseID\spam-report.txt"
+                        Write-Output $($slStatus.Replace("`r`n","`r`n")) >> "$caseFolder$caseID\spam-report.txt"
                         Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
 
                         Logger -logSev "s" -Message "End Safelink Trace"
                     }
                 }
-
-                if ($spearInspector) {
-                    pluginSpearIns
-                }
-                
-
-            #>
-    
-            
-                # AUTO QUARANTINE ACTIONS
-                if ( $autoQuarantine -eq $true ) {
-                    Logger -logSev "s" -Message "Begin AUTO QUARANTINE Block"
-                    if ( $threatScore -gt $threatThreshold ) {
-                        Logger -logSev "i" -Message "Threat score $threatScore is greater than threshold of $threatThreshold"
-                        $autoQuarantineNote = "Initiating auto-quarantine based on Threat Score of $threatScore. Copying messages to the Phishing inbox and hard-deleting from all recipient inboxes."
-                        Logger -logSev "i" -Message "LogRhythm API - Case Updated"
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$autoQuarantineNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                        sleep 5
-                        Logger -logSev "i" -Message "Invoking 365Ninja Quarantine"
-                        if ( $EncodedXMLCredentials ) {
-                            & $pieFolder\plugins\O365Ninja.ps1 -scrapeMail -sender "$spammer" -nuke -caseNumber $caseNumber -encodedXMLCredentials "$EncodedXMLCredentials" -socMailbox $socMailBox -LogRhythmHost $LogRhythmHost -caseAPItoken $caseAPItoken
-                        } else {
-                            & $pieFolder\plugins\O365Ninja.ps1 -scrapeMail -sender "$spammer" -nuke -caseNumber $caseNumber -username $username -password $password -socMailbox $socMailBox -LogRhythmHost $LogRhythmHost -caseAPItoken $caseAPItoken
-                        }
-                    }
-
-                    if ( $threatScore -lt $threatThreshold ) {
-                        Logger -logSev "i" -Message "Threat score $threatScore is less than threshold of $threatThreshold"
-                        $autoQuarantineNote = "Email not quarantined due to a required Threat Threshold of $threatThreshold."
-                        Logger -logSev "i" -Message "LogRhythm API - Case Updated"
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$autoQuarantineNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    }
-                    Logger -logSev "i" -Message "Spam-report Auto Quarantine Results Added"
-                    Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "Message Auto Quarantine Status:" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output $autoQuarantineNote >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                    Logger -logSev "s" -Message "End AUTO QUARANTINE Block"
-                }
-
-                if ( $autoBan -eq $true ) {
-                    Logger -logSev "s" -Message "Begin AUTO BAN Block"
-                    if ( $threatScore -gt $threatThreshold ) {
-                        Logger -logSev "i" -Message "Threat score $threatScore is greater than threshold of $threatThreshold"
-                        Logger -logSev "i" -Message "Automatically banning $spammer based on Threat Score of $threatScore."
-                        Logger -logSev "i" -Message "LogRhythm API - Case Updated"
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$autoBanNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                        sleep 5
-                        Logger -logSev "i" -Message "Invoking 365Ninja Block Sender"
-                        if ( $EncodedXMLCredentials ) {
-                            & $pieFolder\plugins\O365Ninja.ps1 -blockSender -sender "$spammer" -caseNumber $caseNumber -encodedXMLCredentials "$EncodedXMLCredentials" -socMailbox $socMailBox -LogRhythmHost $LogRhythmHost -caseAPItoken $caseAPItoken
-                        } else {
-                            & $pieFolder\plugins\O365Ninja.ps1 -blockSender -sender "$spammer" -caseNumber $caseNumber -username $username -password $password -socMailbox $socMailBox -LogRhythmHost $LogRhythmHost -caseAPItoken $caseAPItoken
-                        }
-                    }
-
-                    if ( $threatScore -lt $threatThreshold ) {
-                        Logger -logSev "i" -Message "Threat score $threatScore is less than threshold of $threatThreshold"
-                        $autoBanNote = "Sender ($spammer) not quarantined due to a required Threat Threshold of $threatThreshold."
-                        Logger -logSev "i" -Message "LogRhythm API - Case Updated"
-                        & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "$autoBanNote" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
-                    }
-
-                    Logger -logSev "i" -Message "Spam-report Auto Ban Results Added"
-                    Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "Message Auto Ban Status:" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output $autobanNote >> "$caseFolder$caseID\spam-report.txt"
-                    Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
-
-                    Logger -logSev "s" -Message "End AUTO BAN Block"
-                }
-                Logger -logSev "s" -Message "End Auto-Remediation Block"
-                Logger -logSev "s" -Message "Begin JSON Block"
-
-                $specialPattern = "[^\u0000-\u007F]"
-                if ($messageBody -Match "$specialPattern") { 
-                    $messageBody = $messageBody -Replace "$specialPattern","?"
-                    Logger -logSev "i" -Message "Invalid characters identified, cleaning non-ASCII out of messageBody"  
-                }
-
 
                 # Build Json Summary
                 $jsonPie | Add-Member -ErrorAction Continue -Name 'summary' -MemberType NoteProperty -Value (New-Object -TypeName psobject -Property @{
@@ -3482,20 +1920,12 @@ Case Folder:                 $caseID
 # ================================================================================
 # Case Closeout
 # ================================================================================
-                #Write out PIE Log
-                Pie-Log
-
-                #Submit Hashes to LR
-                Submit-Hash
-
-                # Final Threat Score
-                Logger -logSev "i" -Message "LogRhythm API - Add Threat Score"
-                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Email Threat Score: $threatScore" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
                 
                 Logger -logSev "s" -Message "Begin LogRhythm Playbook Block"
                 if ($casePlaybook -and ($threatScore -ge $casePlaybookThreat)) {
                     Logger -logSev "i" -Message "LogRhythm API - Adding Playbook:$casePlaybook to Case:$caseNumber"
-                    & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -addPlaybook "$casePlaybook" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                    Add-LrCasePlaybook -Id $CaseNumber -Playbook $casePlaybook
+                    #& $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -addPlaybook "$casePlaybook" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
                 } elseif ($casePlaybook -and ($threatScore -lt $casePlaybookThreat)) {
                     Logger -logSev "i" -Message "LogRhythm API - Playbook Omision - Threatscore is less than casePlaybookThreat"
                 } else {
@@ -3512,21 +1942,57 @@ Case Folder:                 $caseID
                 Write-Output "============================================================" >> "$caseFolder$caseID\spam-report.txt"
                 Write-Output "" >> "$caseFolder$caseID\spam-report.txt"
 
-                Logger -logSev "i" -Message "LogRhythm API - Add network share details"
-                & $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Case Details: $networkShare" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                # Copy E-mail Message text body to case
+                Logger -logSev "i" -Message "LogRhythm API - Copying e-mail body text to case"
+                if ( $messageBody ) {
+                    #$caseMessageBody = $($messageBody.Replace("`r`n","`r`n"))
+                    Add-LrNoteToCase -Id $CaseNumber -Text "Reported Message Body:`r`n$caseMessageBody"
+                    #& $pieFolder\plugins\Case-API.ps1 -lrhost $LogRhythmHost -casenum $caseNumber -updateCase "Submitted Email Message Body:`r`n$caseMessageBody" -token $caseAPItoken -pluginLogLevel $pluginLogLevel -runLog $runLog
+                }
+
+
+                if ($Links -or $shortList -or $fileHashes) {
+                    $EmailArtifactsNote = "=== E-mail Links & Attachments Summary ==="
+                    if ( $links) {
+                        $EmailArtifactsNote += "`r`n-- Links --$messageLinks"
+                    }
+                    if ( $shortList.count -gt 0) {
+                        $EmailArtifactsNote += "`r`n-- Short Links --$messageLinks"
+                        foreach ($key in $shortList.keys ) {
+                            $EmailArtifactsNote += "`r`n$key expanded to $($shortlist[$key])"
+                        }
+                    }
+                    if ( $fileHashes ) {
+                        Try {
+                            $caseHashes = (Get-Content "$caseFolder$caseID\hashes.txt") -join "`r`n"
+                        } Catch {
+                            Logger -logSev "e" -Message "Unable to read file $caseFolder$caseID\hashes.txt"
+                        }
+                        $EmailArtifactsNote += "-- File Hashes --`r`n$caseHashes"
+                    }
+                    Add-LrNoteToCase -Id $CaseNumber -Text $EmailArtifactsNote
+                }
+
+                $CaseNote = "=== Reported E-mail Summary ===`r`n"
+                $CaseNote += "`r`nThreat Score: $threatScore"
+                # If multiple subjects, add subjects to case
+                if ( $($subjects.Length) -gt 0 ) {
+                    $caseSubjects = $subjects | Out-String
+                    $caseSubjects = $($caseSubjects.Replace("`"",""))
+                    $CaseNote += "`r`n`r`n-- Subjects --`r`n$caseSubjects"
+                }
+
+                $CaseNote += "`r`n`r`n-- Email Recipients --`r`n$messageRecipients"
+                $CaseNote += "`r`n`r`nEvidence Location: $networkShare"
+
+                # Add overall summary as last, top most case note.
+                Add-LrNoteToCase -Id $CaseNumber -Text $CaseNote
             }   
             #Cleanup Variables prior to next evaluation
             Logger -logSev "s" -Message "Resetting analysis varaiables"
             $jsonPie = $null
             $reportedBy = $null
             $reportedSubject = $null
-            $endUserName = $null
-            $endUserLastName = $null
-            $subjectQuery = $null
-            $searchMailboxResults = $null
-            $targetFolder = $null
-            $outlookAnalysisFolder = $null
-            $companyDomain = $null
             $spammer = $null
             $spammerDisplayName = $null
             $message = $null
