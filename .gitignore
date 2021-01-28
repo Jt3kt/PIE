@@ -1,4 +1,4 @@
-
+*.code-workspace
 *.xml
 .vscode
 .gitignore

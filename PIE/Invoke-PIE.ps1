@@ -1,9 +1,8 @@
 using namespace System.Collections.Generic
-Add-Type -Path "N:\Projects\git\MailKit\MailKit\MailKit\bin\Debug\net45\MailKit.dll"
-Add-Type -Path "N:\Projects\git\MailKit\MailKit\MailKit\bin\Debug\net45\MimeKit.dll"
+
   #====================================#
   # PIE - Phishing Intelligence Engine #
-  # v3.8  --  January 2021             #
+  # v4.0  --  January 2021             #
   #====================================#
 
 # Copyright 2021 LogRhythm Inc.   
@@ -47,8 +46,7 @@ $ErrorActionPreference= 'silentlycontinue'
 
 # Choose how to handle credentials - set the desired flag to $true
 #     Be sure to set credentials or xml file location below
-$EncodedXMLCredentials = $true
-$PlainText = $false
+$EncodedXMLCredentials = $false
 
 # XML Configuration - store credentials in an encoded XML (best option)
 #     This file will need to be re-generated whenever the server reboots!
@@ -59,23 +57,24 @@ if ( $EncodedXMLCredentials ) {
     #
     $CredentialsFile = "N:\Projects\git\PIE\Service-Account_cred.xml"
     $PSCredential = Import-CliXml -Path $CredentialsFile 
+} else {
+    # Plain Text Credentials (not recommended)
+    $username = ""
+    $password = ''
 }
 
-# Plain Text Credentials (not recommended)
-if ( $PlainText ) {
-    $username = "SERVICE-ACCOUNT@SOMEDOMAIN.COM"
-    $password = "PASSWORD"
-}
+
+
 
 $MailServer = "outlook.office365.com"
 $MailServerPort = 993
 
 
 # LogRhythm Case API Integration
-$LogRhythmHost = "logrhythmhost.example.com"
+$LogRhythmHost = "tam-pm"
 
 # Case Folder and Logging
-$pieFolder = "N:\Projects\git\PIE\Scripts\PIE"
+$pieFolder = "C:\Users\eric\Documents\GitHub\PIE\PIE"
 
 
 # Case Tagging and User Assignment
@@ -134,19 +133,34 @@ $tmpFolder = "$pieFolder\tmp\"
 $runLog = "$pieFolder\logs\pierun.txt"
 $log = $true
 
-
 # PIE Version
-$PIEVersion = 3.8
+$PIEVersion = 4.0
 
-# LogRhythm API Integration via LogRhyhtm.Tools
-Try {
-    #Import-Module logrhythm.tools
-    #Start-Sleep 10
-} Catch {
-    Write-Host "PIE requires installation and setup of PowerShell module: LogRhythm.Tools"
-    Write-Host "Please visit https://github.com/LogRhythm-Tools/LogRhythm.Tools"
-    Return 0
+$PIEModules = @("logrhythm.tools")
+ForEach ($ReqModule in $PIEModules){
+    If ($null -eq (Get-Module $ReqModule -ListAvailable -ErrorAction SilentlyContinue)) {
+        if ($ReqModule -like "logrhythm.tools") {
+            Write-Host "$ReqModule is not installed.  Please install $ReqModule to continue."
+            Write-Host "Please visit https://github.com/LogRhythm-Tools/LogRhythm.Tools"
+            Return 0
+        } else {
+            Write-Verbose "Installing $ReqModule from default repository"
+            Install-Module -Name $ReqModule -Force
+            Write-Verbose "Importing $ReqModule"
+            Import-Module -Name $ReqModule
+        }
+    } ElseIf ($null -eq (Get-Module $ReqModule -ErrorAction SilentlyContinue)){
+        Try {
+            Write-Host "Importing Module: $ReqModule"
+            Import-Module -Name $ReqModule
+        } Catch {
+            Write-Host "Unable to import module: $ReqModule"
+            Return 0
+        }
+
+    }
 }
+
 New-PIELogger -logSev "s" -Message "BEGIN NEW PIE EXECUTION" -LogFile $runLog -PassThru
 
 # LogRhythm Tools Version
@@ -154,6 +168,22 @@ $LRTVersion = $(Get-Module -name logrhythm.tools | Select-Object -ExpandProperty
 
 New-PIELogger -logSev "i" -Message "PIE Version: $PIEVersion" -LogFile $runLog -PassThru
 New-PIELogger -logSev "i" -Message "LogRhythm Tools Version: $LRTVersion" -LogFile $runLog -PassThru
+
+New-PIELogger -logSev "i" -Message "Loading MailKit.dll Library" -LogFile $runLog -PassThru
+Try {
+    Add-Type -Path (join-Path $pieFolder -ChildPath "lib\net45\MailKit.dll")
+    New-PIELogger -logSev "i" -Message "MailKit.dll loaded successfully." -LogFile $runLog -PassThru
+} Catch {
+    New-PIELogger -logSev "e" -Message "Unable to load MailKit.dll Library" -LogFile $runLog -PassThru
+}
+
+New-PIELogger -logSev "i" -Message "Loading MimeKit.dll Library" -LogFile $runLog -PassThru
+Try {
+    Add-Type -Path (join-Path $pieFolder -ChildPath "lib\net45\MimeKit.dll") -ReferencedAssemblies (join-Path $pieFolder -ChildPath "lib\net45\BouncyCastle.Crypto.dll")
+    New-PIELogger -logSev "i" -Message "MimeKit.dll loaded successfully." -LogFile $runLog -PassThru
+} Catch {
+    New-PIELogger -logSev "e" -Message "Unable to load MimeKit.dll Library" -LogFile $runLog -PassThru
+}
 
 # Email Parsing Varibles
 $interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'htm', 'js', 'rpm', 'bat', 'cmd')
@@ -211,10 +241,11 @@ if ( $log -eq $true) {
     # Establish Mailkit IMAP Mail Client
     $MailClient = New-Object MailKit.Net.Imap.ImapClient
     $MailClientSsl = [MailKit.Security.SecureSocketOptions]::Auto
-    $MailClientCancelToken = New-Object System.Threading.CancellationToken ($false)
+    $MailClientCancelToken = New-Object System.Threading.CancellationToken($false)
 
     # Define Connection String
-    $MailClient.Connect("$MailServer", $MailServerPort, $MailClientSsl, $MailClientCancelToken)
+    New-PIELogger -logSev "i" -Message "Establishing IMAP connection to: $MailServer`:$MailServerPort" -LogFile $runLog -PassThru
+    $MailClient.Connect($MailServer, $MailServerPort, $MailClientSsl, $MailClientCancelToken)
     # Authenticate
     if ($PSCredential) {
         Try {
@@ -242,8 +273,14 @@ if ( $log -eq $true) {
     
 
     #Open Inbox
-    $Inbox = $MailClient.Inbox
-    $Inbox.Open([MailKit.FolderAccess]::ReadWrite) | Out-Null
+    Try {
+        $Inbox = $MailClient.Inbox
+        $Inbox.Open([MailKit.FolderAccess]::ReadWrite) | Out-Null
+    } Catch {
+        New-PIELogger -logSev "i" -Message "Unable to open Mail Inbox." -LogFile $runLog -PassThru
+    }
+    
+
     $InboxNewMail = $inbox.Search([MailKit.Search.SearchQuery]::All)
 
     #Validate Inbox/COMPLETED Folder
@@ -266,6 +303,7 @@ if ( $log -eq $true) {
 
     # If the folder does not exist, create it.
     if (!$InboxSkipped) {
+        New-PIELogger -logSev "i" -Message "" -LogFile $runLog -PassThru
         # Setup to create folders:
         $void = $inbox.Create("SKIPPED", $true)
         # Refresh Inbox folders
@@ -373,7 +411,10 @@ if ( $log -eq $true) {
                         Original = $null
                         Modified = $null
                     }
-                    Headers = $null
+                    Headers = [PSCustomObject]@{
+                        Source = $null
+                        Details = $null
+                    }
                     Attachments = $null
                     Links = [PSCustomObject]@{
                         Source = $null
@@ -450,7 +491,7 @@ if ( $log -eq $true) {
 
             #Headers
             New-PIELogger -logSev "d" -Message "Processing Headers" -LogFile $runLog -PassThru
-            $ReportEvidence.EvaluationResults.Headers = $Eml.Headers
+            $ReportEvidence.EvaluationResults.Headers.Source = $Eml.Headers
 
                         
             New-PIELogger -logSev "s" -Message "Begin Parsing URLs" -LogFile $runLog -PassThru                  
