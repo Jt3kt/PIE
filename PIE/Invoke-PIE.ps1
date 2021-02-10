@@ -2,7 +2,7 @@ using namespace System.Collections.Generic
 
   #====================================#
   # PIE - Phishing Intelligence Engine #
-  # v4.0  --  January 2021             #
+  # v4.0  --  February 2021             #
   #====================================#
 
 # Copyright 2021 LogRhythm Inc.   
@@ -36,7 +36,6 @@ $banner = @"
 
 # Mask errors
 $ErrorActionPreference= 'silentlycontinue'
-#$VerbosePreference= 'continue'
 
 # ================================================================================
 # DEFINE GLOBAL PARAMETERS AND CAPTURE CREDENTIALS
@@ -49,13 +48,12 @@ $ErrorActionPreference= 'silentlycontinue'
 $EncodedXMLCredentials = $false
 
 # XML Configuration - store credentials in an encoded XML (best option)
-#     This file will need to be re-generated whenever the server reboots!
 if ( $EncodedXMLCredentials ) {
     #
     # To generate the XML:
     #      PS C:\> Get-Credential | Export-Clixml Service-Account_cred.xml
     #
-    $CredentialsFile = "N:\Projects\git\PIE\Service-Account_cred.xml"
+    $CredentialsFile = "C:\PIE\PIE_cred.xml"
     $PSCredential = Import-CliXml -Path $CredentialsFile 
 } else {
     # Plain Text Credentials (not recommended)
@@ -63,31 +61,40 @@ if ( $EncodedXMLCredentials ) {
     $password = ''
 }
 
+# E-mail address for SOC Mailbox.  Typically same as Username value.
+$SocMailbox = "phish@phishstick.io"
 
-
-
+# MailServer for IMAP Connection
 $MailServer = "outlook.office365.com"
+
+# TCP Port for IMAP Connection
 $MailServerPort = 993
 
+# ================================================================================
+# LogRhythm SIEM Configuration
+# ================================================================================
 
-# LogRhythm Case API Integration
+# LogRhythm Web Console Hostname
 $LogRhythmHost = "tam-pm"
-
-# Case Folder and Logging
-$pieFolder = "C:\Users\eric\Documents\GitHub\PIE\PIE"
-
 
 # Case Tagging and User Assignment
 # Default value - modify to match your case tagging schema. Note "PIE" tag is used with the Case Management Dashboard.
-$defaultCaseTag = "PIE" 
-# Primary case owner / SOC lead
-$caseOwner = "hart, eric" 
+$LrCaseTags = ("PIE", "TAG2")
+
 # Add as many users as you would like, separate them like so: "user1", "user2"...
-$caseCollaborators = ("hart, eric") 
+$LrCaseCollaborators = ("example, user") 
 
-# Phishing Playbook Assignment
-$casePlaybook = "Phishing"
+# Playbook Assignment based on Playbook Name
+$LrCasePlaybook = ("Phishing")
 
+# Enable LogRhythm log search
+$LrLogSearch = $true
+
+# Enable LogRhythm Case output
+$LrCaseOutput = $true
+
+# Enable LogRhythm TrueIdentity Lookup
+$LrTrueId = $true
 
 # ================================================================================
 # Third Party Analytics
@@ -115,23 +122,23 @@ $shodan = $true
 # ================================================================================
 # Date, File, and Global Email Parsing
 # ================================================================================
-
-# Date Variables
-$date = Get-Date
-$oldAF = (Get-Date).AddDays(-10)
-$96Hours = (Get-Date).AddHours(-96)
-$48Hours = (Get-Date).AddHours(-48)
-$24Hours = (Get-Date).AddHours(-24)
-$inceptionDate = (Get-Date).AddMinutes(-16)
-$phishDate = (Get-Date).AddMinutes(-31)
-$day = Get-Date -Format MM-dd-yyyy
+# To support and facilitate accessing and creating resources
+$pieFolder = $PSScriptRoot
 
 # Folder Structure
 $phishLog = "$pieFolder\logs\ongoing-phish-log.csv"
 $caseFolder = "$pieFolder\cases\"
 $tmpFolder = "$pieFolder\tmp\"
 $runLog = "$pieFolder\logs\pierun.txt"
-$log = $true
+
+$LogsOutputFolder = (Join-Path $pieFolder -ChildPath "logs")
+if (!(Test-Path $LogsOutputFolder)) {
+    Try {
+        New-Item -Path $LogsOutputFolder -ItemType Directory -Force | Out-Null
+    } Catch {
+        Write-Host "Unable to create folder: $LogsOutputFolder"
+    } 
+}
 
 # PIE Version
 $PIEVersion = 4.0
@@ -161,7 +168,7 @@ ForEach ($ReqModule in $PIEModules){
     }
 }
 
-New-PIELogger -logSev "s" -Message "BEGIN NEW PIE EXECUTION" -LogFile $runLog -PassThru
+New-PIELogger -logSev "s" -Message "BEGIN - PIE Process" -LogFile $runLog -PassThru
 
 # LogRhythm Tools Version
 $LRTVersion = $(Get-Module -name logrhythm.tools | Select-Object -ExpandProperty Version) -join ","
@@ -185,572 +192,709 @@ Try {
     New-PIELogger -logSev "e" -Message "Unable to load MimeKit.dll Library" -LogFile $runLog -PassThru
 }
 
+
+$CaseOutputFolder = (Join-Path $pieFolder -ChildPath "cases")
+if (!(Test-Path $CaseOutputFolder)) {
+    Try {
+        New-PIELogger -logSev "i" -Message "Creating folder: $CaseOutputFolder" -LogFile $runLog -PassThru
+        New-Item -Path $CaseOutputFolder -ItemType Directory -Force | Out-Null
+    } Catch {
+        New-PIELogger -logSev "e" -Message "Unable to create folder: $CaseOutputFolder" -LogFile $runLog -PassThru
+    } 
+}
+
+$CaseTmpFolder = (Join-Path $pieFolder -ChildPath "tmp")
+if (!(Test-Path $CaseTmpFolder)) {
+    Try {
+        New-PIELogger -logSev "i" -Message "Creating folder: $CaseTmpFolder" -LogFile $runLog -PassThru
+        New-Item -Path $CaseTmpFolder -ItemType Directory -Force | Out-Null
+    } Catch {
+        New-PIELogger -logSev "e" -Message "Unable to create folder: $CaseTmpFolder" -LogFile $runLog -PassThru
+    }
+    
+}
+
 # Email Parsing Varibles
 $interestingFiles = @('pdf', 'exe', 'zip', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'arj', 'jar', '7zip', 'tar', 'gz', 'html', 'htm', 'js', 'rpm', 'bat', 'cmd')
 $interestingFilesRegex = [string]::Join('|', $interestingFiles)
 
 $specialPattern = "[^\u0000-\u007F]"
 
-# Determine Available E-mail Log Sources
-$SupportedLogSourceTypes = @('API - Office 365 Message Tracking', 'Flat File - MS Exchange 2003 Message Tracking Log', 'Flat File - MS Exchange 2007 Message Tracking Log', 'Flat File - MS Exchange 2010 Message Tracking Log', 'Flat File - MS Exchange 2013 Message Tracking Log', 'Flat File - MS Exchange 2016 Message Tracking Log', 'Flat File - Office 365 Message Tracking', 'Syslog - Open Collector - Gmail Message Tracking')
-$LogSourceIDs = [list[int32]]::new()
-
-# Lookup Log Source ID # for each SupportedLogSourceType
-ForEach ($LogSourceType in $SupportedLogSourceTypes) {
-    $LogTypeDetails = Get-LrLogSourceTypes -Name $LogSourceType
-    if ($LogSourceIDs -notcontains $LogTypeDetails.id) {
-        $LogSourceIDs.add($LogTypeDetails.Id)
-    }
-}
-
-# Lookup each Log Source of each supported LogSource Type
-$SearchLogSources = [list[int32]]::new()
-ForEach ($LogSourceID in $LogSourceIDs) {
-    $LogSourceDetails = Get-LrLogSources -MessageSourceTypeId $LogSourceId
-    if ($LogSourceDetails) {
-        if ($SearchLogSources -notcontains $LogSourceDetails.id) {
-            $SearchLogSources.add($LogSourceDetails.Id)
-        }
-    }
-}
-
 
 # ================================================================================
 # MEAT OF THE PIE
 # ================================================================================
-New-PIELogger -logSev "i" -Message "Check for New Reports" -LogFile $runLog -PassThru
-if ( $log -eq $true) {
-    #Create phishLog if file does not exist.
-    if ( $(Test-Path $phishLog -PathType Leaf) -eq $false ) {
-        Set-Content $phishLog -Value "MessageTraceId,Received,SenderAddress,RecipientAddress,FromIP,ToIP,Subject,Status,Size,MessageId"
-        New-PIELogger -logSev "a" -Message "No phishlog detected.  Created new $phishLog"
-    }
 
-    # Search for Reported Phishing Messages
-    <#
+
+#Create phishLog if file does not exist.
+if ( $(Test-Path $phishLog -PathType Leaf) -eq $false ) {
+    New-PIELogger -logSev "a" -Message "No phishlog detected.  Created new $phishLog" -LogFile $runLog -PassThru
     Try {
-        New-PIELogger -logSev "i" -Message "Loading previous reports to phishHistory" -LogFile $runLog -PassThru
-        $phishHistory = Get-Content $phishLog | ConvertFrom-Csv -Header "MessageTraceID","Received","SenderAddress","RecipientAddress","FromIP","ToIP","Subject","Status","Size","MessageID"
+        Set-Content $phishLog -Value "Guid,Timestamp,MessageId,SenderAddress,RecipientAddress,Subject"
     } Catch {
-        New-PIELogger -logSev "e" -Message "Unable to read file: $phishLog" -LogFile $runLog -PassThru
+        New-PIELogger -logSev "e" -Message "Unable to create file: $phishLog" -LogFile $runLog -PassThru
+    }    
+}
+
+<# IMAP #>
+# Establish Mailkit IMAP Mail Client
+$MailClient = New-Object MailKit.Net.Imap.ImapClient
+$MailClientSsl = [MailKit.Security.SecureSocketOptions]::Auto
+$MailClientCancelToken = New-Object System.Threading.CancellationToken($false)
+
+# Define Connection String
+New-PIELogger -logSev "i" -Message "Establishing IMAP connection to: $MailServer`:$MailServerPort" -LogFile $runLog -PassThru
+$MailClient.Connect($MailServer, $MailServerPort, $MailClientSsl, $MailClientCancelToken)
+# Authenticate
+if ($PSCredential) {
+    Try {
+        $MailClient.Authenticate($PSCredential.Username, $PSCredential.GetNetworkCredential().Password, $MailClientCancelToken)
+    } Catch {
+        New-PIELogger -logSev "e" -Message "Unable to authenticate to mail server." -LogFile $runLog -PassThru
         New-PIELogger -logSev "s" -Message "PIE Execution Halting" -LogFile $runLog -PassThru
         exit 1
     }
-    #>
-    <# IMAP #>
-    # Establish Mailkit IMAP Mail Client
-    $MailClient = New-Object MailKit.Net.Imap.ImapClient
-    $MailClientSsl = [MailKit.Security.SecureSocketOptions]::Auto
-    $MailClientCancelToken = New-Object System.Threading.CancellationToken($false)
-
-    # Define Connection String
-    New-PIELogger -logSev "i" -Message "Establishing IMAP connection to: $MailServer`:$MailServerPort" -LogFile $runLog -PassThru
-    $MailClient.Connect($MailServer, $MailServerPort, $MailClientSsl, $MailClientCancelToken)
-    # Authenticate
-    if ($PSCredential) {
-        Try {
-            $MailClient.Authenticate($PSCredential.Username, $PSCredential.GetNetworkCredential().Password, $MailClientCancelToken)
-        } Catch {
-            New-PIELogger -logSev "e" -Message "Unable to authenticate to mail server." -LogFile $runLog -PassThru
-            New-PIELogger -logSev "s" -Message "PIE Execution Halting" -LogFile $runLog -PassThru
-            exit 1
-        }
-    } elseif ($Username -and $Password) {
-        New-PIELogger -logSev "i" -Message "Warning - Username and Password stored in plain text" -LogFile $runLog -PassThru
-        Try {
-            $MailClient.Authenticate($username, $password, $MailClientCancelToken)
-        } Catch {
-            New-PIELogger -logSev "e" -Message "Unable to authenticate to mail server." -LogFile $runLog -PassThru
-            New-PIELogger -logSev "s" -Message "PIE Execution Halting" -LogFile $runLog -PassThru
-            exit 1
-        }
-    } else {
-            New-PIELogger -logSev "e" -Message "Username or Password not provided.  Unable to attempt connection." -LogFile $runLog -PassThru
-            New-PIELogger -logSev "s" -Message "PIE Execution Halting" -LogFile $runLog -PassThru
-            exit 1
-    }
-
-    
-
-    #Open Inbox
+} elseif ($Username -and $Password) {
+    New-PIELogger -logSev "i" -Message "Warning - Username and Password stored in plain text" -LogFile $runLog -PassThru
     Try {
-        $Inbox = $MailClient.Inbox
-        $Inbox.Open([MailKit.FolderAccess]::ReadWrite) | Out-Null
+        $MailClient.Authenticate($username, $password, $MailClientCancelToken)
     } Catch {
-        New-PIELogger -logSev "i" -Message "Unable to open Mail Inbox." -LogFile $runLog -PassThru
+        New-PIELogger -logSev "e" -Message "Unable to authenticate to mail server." -LogFile $runLog -PassThru
+        New-PIELogger -logSev "s" -Message "PIE Execution Halting" -LogFile $runLog -PassThru
+        exit 1
     }
-    
+} else {
+        New-PIELogger -logSev "e" -Message "Username or Password not provided.  Unable to attempt connection." -LogFile $runLog -PassThru
+        New-PIELogger -logSev "s" -Message "PIE Execution Halting" -LogFile $runLog -PassThru
+        exit 1
+}
 
-    $InboxNewMail = $inbox.Search([MailKit.Search.SearchQuery]::All)
 
-    #Validate Inbox/COMPLETED Folder
-    $InboxCompleted = $MailClient.Inbox
+
+#Open Inbox
+Try {
+    $Inbox = $MailClient.Inbox
+    $Inbox.Open([MailKit.FolderAccess]::ReadWrite) | Out-Null
+} Catch {
+    New-PIELogger -logSev "i" -Message "Unable to open Mail Inbox." -LogFile $runLog -PassThru
+}
+
+
+$InboxNewMail = $inbox.Search([MailKit.Search.SearchQuery]::All)
+
+#Validate Inbox/COMPLETED Folder
+$InboxCompleted = $MailClient.Inbox
+$InboxCompleted = $InboxCompleted.GetSubfolders($false) | Where-Object {$_.Name -eq 'COMPLETED'}
+
+# If the folder does not exist, create it.
+if (!$InboxCompleted) {
+    # Setup to create folders:
+    $void = $inbox.Create("COMPLETED", $true)
+    # Refresh Inbox folders
+    $InboxCompleted = $cnn.Inbox
+    # Set folder context for Completed
     $InboxCompleted = $InboxCompleted.GetSubfolders($false) | Where-Object {$_.Name -eq 'COMPLETED'}
+}
 
-    # If the folder does not exist, create it.
-    if (!$InboxCompleted) {
-        # Setup to create folders:
-        $void = $inbox.Create("COMPLETED", $true)
-        # Refresh Inbox folders
-        $InboxCompleted = $cnn.Inbox
-        # Set folder context for Completed
-        $InboxCompleted = $InboxCompleted.GetSubfolders($false) | Where-Object {$_.Name -eq 'COMPLETED'}
-    }
+#Validate Inbox/SKIPPED Folder
+$InboxSkipped = $MailClient.Inbox
+$InboxSkipped = $InboxSkipped.GetSubfolders($false) | Where-Object {$_.Name -eq 'SKIPPED'}
 
-    #Validate Inbox/SKIPPED Folder
-    $InboxSkipped = $MailClient.Inbox
+# If the folder does not exist, create it.
+if (!$InboxSkipped) {
+    New-PIELogger -logSev "i" -Message "" -LogFile $runLog -PassThru
+    # Setup to create folders:
+    $void = $inbox.Create("SKIPPED", $true)
+    # Refresh Inbox folders
+    $InboxSkipped = $cnn.Inbox
+    # Set folder context for Skipped
     $InboxSkipped = $InboxSkipped.GetSubfolders($false) | Where-Object {$_.Name -eq 'SKIPPED'}
+}
 
-    # If the folder does not exist, create it.
-    if (!$InboxSkipped) {
-        New-PIELogger -logSev "i" -Message "" -LogFile $runLog -PassThru
-        # Setup to create folders:
-        $void = $inbox.Create("SKIPPED", $true)
-        # Refresh Inbox folders
-        $InboxSkipped = $cnn.Inbox
-        # Set folder context for Skipped
-        $InboxSkipped = $InboxSkipped.GetSubfolders($false) | Where-Object {$_.Name -eq 'SKIPPED'}
-    }
+# Establish List objects to facilitate moving e-mail messages to their target folders
+$FolderDestCompleted = [list[MailKit.UniqueId]]::new()
+$FolderDestSkipped = [list[MailKit.UniqueId]]::new()
 
-    # Establish List objects to facilitate moving e-mail messages to their target folders
-    $FolderDestCompleted = [list[MailKit.UniqueId]]::new()
-    $FolderDestSkipped = [list[MailKit.UniqueId]]::new()
+if ($InboxNewMail.count -eq 0) {
+    New-PIELogger -logSev "i" -Message "No new reports detected" -LogFile $runLog -PassThru
+} else {
+    New-PIELogger -logSev "i" -Message "New inbox items detected.  Proceeding to evaluate for PhishReports." -LogFile $runLog -PassThru
 
-    if ($InboxNewMail.count -eq 0) {
-        New-PIELogger -logSev "i" -Message "No new reports detected" -LogFile $runLog -PassThru
-    } else {
-        New-PIELogger -logSev "i" -Message "New inbox items detected.  Proceeding to evaluate for PhishReports." -LogFile $runLog -PassThru
-
-        # Loop through each inbox item to identify PhishReports
-        for ($i = 0; $i -lt $InboxNewMail.Count; $i++) {
-            $EmailMessage = $Inbox.GetMessage($i)
-            $ValidSubmissionAttachment = $false
-            foreach ($Attachment in $($EmailMessage.Attachments)) {
-                if ($Attachment.ContentType.MimeType -eq "message/rfc822") {
-                    $ValidSubmissionAttachment = $true
-                } elseif ($Attachment.ContentType.Name -match "^.*\.(eml|msg)") {
-                    $ValidSubmissionAttachment = $true
-                }
-            }
-
-            $MailId = [MailKit.UniqueId]($InboxNewMail[$i])
-            if ($ValidSubmissionAttachment) {
-                if ($FolderDestCompleted -notcontains $MailId) {
-                    $FolderDestCompleted.add($MailId)
-                }
-            } else {
-                if ($FolderDestSkipped -notcontains $MailId) {
-                    $FolderDestSkipped.add($MailId) 
-                }
+    # Loop through each inbox item to identify PhishReports
+    for ($i = 0; $i -lt $InboxNewMail.Count; $i++) {
+        $EmailMessage = $Inbox.GetMessage($i)
+        $ValidSubmissionAttachment = $false
+        foreach ($Attachment in $($EmailMessage.Attachments)) {
+            if ($Attachment.ContentType.MimeType -eq "message/rfc822") {
+                $ValidSubmissionAttachment = $true
+            } elseif ($Attachment.ContentType.Name -match "^.*\.(eml|msg)") {
+                $ValidSubmissionAttachment = $true
             }
         }
+
+        $MailId = [MailKit.UniqueId]($InboxNewMail[$i])
+        if ($ValidSubmissionAttachment) {
+            if ($FolderDestCompleted -notcontains $MailId) {
+                $FolderDestCompleted.add($MailId)
+            }
+        } else {
+            if ($FolderDestSkipped -notcontains $MailId) {
+                $FolderDestSkipped.add($MailId) 
+            }
+        }
+    }
+
     
-        
-        New-PIELogger -logSev "s" -Message "Begin processing newReports" -LogFile $runLog -PassThru
+    New-PIELogger -logSev "s" -Message "Begin processing newReports" -LogFile $runLog -PassThru
 
-        :newReport ForEach ($MailId in $FolderDestCompleted) {
-            $StartTime = (get-date).ToUniversalTime()
+    :newReport ForEach ($MailId in $FolderDestCompleted) {
+        $StartTime = (get-date).ToUniversalTime()
 
-            # Load NewReport
-            $NewReport = $Inbox.GetMessage($MailId)
+        # Load NewReport
+        $NewReport = $Inbox.GetMessage($MailId)
 
-            # Establish Submission PSObject
-            $Attachments = [list[object]]::new()
+        # Establish Submission PSObject
+        $Attachments = [list[object]]::new()
 
-            # Report GUID
-            $ReportGuid = $(New-Guid | Select-Object -ExpandProperty Guid)
+        # Report GUID
+        $ReportGuid = $(New-Guid | Select-Object -ExpandProperty Guid)
 
-            # Add data for evaluated email
-            $ReportEvidence = [PSCustomObject]@{
-                Meta = [PSCustomObject]@{ 
-                    GUID = $ReportGuid
-                    Timestamp = $StartTime.ToString("yyyy-MM-ddTHHmmssffZ")
-                    Metrics = [PSCustomObject]@{ 
-                        Begin = $StartTime.ToString("yyyy-MM-ddTHHmmssffZ")
-                        End = $null
-                        Duration = $null
-                    }
-                    Version = [PSCustomObject]@{ 
-                        PIE = $PIEVersion
-                        LRTools = $LRTVersion
-                    }
+
+        # Add data for evaluated email
+        $ReportEvidence = [PSCustomObject]@{
+            Meta = [PSCustomObject]@{ 
+                GUID = $ReportGuid
+                Timestamp = $null
+                Metrics = [PSCustomObject]@{ 
+                    Begin = $null
+                    End = $null
+                    Duration = $null
                 }
-                ReportSubmission = [PSCustomObject]@{
-                    Sender = $($NewReport.From.Address)
-                    SenderDisplayName = $($NewReport.From.Name)
-                    Recipient = $($NewReport.To.Address)
-                    Subject = [PSCustomObject]@{
-                        Original = $($NewReport.Subject)
-                        Modified = $null
-                    }
-                    UtcDate = $($NewReport.date.utcdatetime).ToString("yyyy-MM-ddTHHmmssffZ")
-                    MessageId = $($NewReport.messageid)
-                    Attachment = [PSCustomObject]@{
-                        Name = $null
-                        Type = $null
-                        Hash = $null
-                    }
+                Version = [PSCustomObject]@{ 
+                    PIE = $PIEVersion
+                    LRTools = $LRTVersion
                 }
-                EvaluationResults = [PSCustomObject]@{
-                    Sender = $null
-                    SenderDisplayName = $null
-                    Recipient = [PSCustomObject]@{
-                        To = $null
-                        CC = $null
-                    }
-                    UtcDate = $null
-                    Subject = [PSCustomObject]@{
-                        Original = $null
-                        Modified = $null
-                    }
-                    Body = [PSCustomObject]@{
-                        Original = $null
-                        Modified = $null
-                    }
-                    HTMLBody = [PSCustomObject]@{
-                        Original = $null
-                        Modified = $null
-                    }
-                    Headers = [PSCustomObject]@{
-                        Source = $null
-                        Details = $null
-                    }
-                    Attachments = $null
-                    Links = [PSCustomObject]@{
-                        Source = $null
-                        Value = $null
-                        Details = $null
-                    }
+            }
+            ReportSubmission = [PSCustomObject]@{
+                Sender = $null
+                SenderDisplayName = $null
+                Recipient = $null
+                Subject = [PSCustomObject]@{
+                    Original = $null
+                    Modified = $null
                 }
-                LogRhythmCase = [PSCustomObject]@{
-                    Number = $null
-                    Url = $null
+                UtcDate = $null
+                MessageId = $null
+                Attachment = [PSCustomObject]@{
+                    Name = $null
+                    Type = $null
+                    Hash = $null
+                }
+            }
+            EvaluationResults = [PSCustomObject]@{
+                Sender = $null
+                SenderDisplayName = $null
+                Recipient = [PSCustomObject]@{
+                    To = $null
+                    CC = $null
+                }
+                UtcDate = $null
+                Subject = [PSCustomObject]@{
+                    Original = $null
+                    Modified = $null
+                }
+                Body = [PSCustomObject]@{
+                    Original = $null
+                    Modified = $null
+                }
+                HTMLBody = [PSCustomObject]@{
+                    Original = $null
+                    Modified = $null
+                }
+                Headers = [PSCustomObject]@{
+                    Source = $null
                     Details = $null
                 }
-                LogRhythmSearch = $null
+                Attachments = $null
+                Links = [PSCustomObject]@{
+                    Source = $null
+                    Value = $null
+                    Details = $null
+                }
+                LogRhythmTrueId = [PSCustomObject]@{
+                    Sender = $null
+                    Recipient = $null
+                }
             }
+            LogRhythmCase = [PSCustomObject]@{
+                Number = $null
+                Url = $null
+                Details = $null
+            }
+            LogRhythmSearch = [PSCustomObject]@{
+                TaskID = $null
+                Status = $null
+                Results = $null
+                Summary = [PSCustomObject]@{
+                    Quantity = $null
+                    Recipient = $null
+                    Sender = $null
+                    Subject = $null
+                }
+                Details = [PSCustomObject]@{
+                    SendAndSubject = [PSCustomObject]@{ 
+                        Logs = $null
+                        Sender = $null
+                        Subject = $null
+                        Recipients = $null
+                        Quantity = $null
+                    }
+                    Sender = [PSCustomObject]@{ 
+                        Logs = $null
+                        Sender = $null
+                        Recipients = $null
+                        Subjects = $null
+                        Quantity = $null
+                    }
+                    Subject = [PSCustomObject]@{ 
+                        Logs = $null
+                        Senders = $null
+                        Recipients = $null
+                        Subject = $null
+                        Quantity = $null
+                    }
+                }
+            }
+        }
 
-            # Track the user who reported the message
-            New-PIELogger -logSev "i" -Message "Sent By: $($ReportEvidence.ReportSubmission.Sender)  Reported Subject: $($ReportEvidence.ReportSubmission.Subject.Original)" -LogFile $runLog -PassThru
-            
-            # Extract and load attached e-mail attachment
-            foreach ($Attachment in $($NewReport.Attachments)) {
+        # Set initial time data
+        $ReportEvidence.Meta.Timestamp = $StartTime.ToString("yyyy-MM-ddTHHmmssffZ")
+        $ReportEvidence.Meta.Metrics.Begin = $StartTime.ToString("yyyy-MM-ddTHHmmssffZ")
+
+        # Set PIE Metadata versions
+        $ReportEvidence.Meta.Version.PIE = $PIEVersion
+        $ReportEvidence.Meta.Version.LRTools = $LRTVersion
+
+        # Set ReportSubmission data
+        $ReportEvidence.ReportSubmission.Sender = $($NewReport.From.Address)
+        $ReportEvidence.ReportSubmission.SenderDisplayName = $($NewReport.From.Name)
+        $ReportEvidence.ReportSubmission.Recipient = $($NewReport.To.Address)
+        $ReportEvidence.ReportSubmission.Subject.Original = $($NewReport.Subject)
+        $ReportEvidence.ReportSubmission.UtcDate = $($NewReport.date.utcdatetime).ToString("yyyy-MM-ddTHHmmssffZ")
+        $ReportEvidence.ReportSubmission.MessageId = $($NewReport.messageid)
+
+
+        # Track the user who reported the message
+        New-PIELogger -logSev "i" -Message "Sent By: $($ReportEvidence.ReportSubmission.Sender)  Reported Subject: $($ReportEvidence.ReportSubmission.Subject.Original)" -LogFile $runLog -PassThru
+        
+        # Extract and load attached e-mail attachment
+        foreach ($Attachment in $($NewReport.Attachments)) {
+            if ($Attachment.ContentType.MimeType -eq "message/rfc822") {
+                New-PIELogger -logSev "s" -Message "Processing rfc822 data format" -LogFile $runLog -PassThru
+                $ReportEvidence.ReportSubmission.Attachment.Name = $Attachment.Message.From.Address.Replace("@","_").replace(".","-") + ".eml"
+                $ReportEvidence.ReportSubmission.Attachment.Type = $Attachment.ContentType.MimeType
+                $TmpSavePath = [System.IO.FileInfo]::new((Join-Path -Path $tmpFolder -ChildPath $ReportEvidence.ReportSubmission.Attachment.Name))
+                $Attachment.Message.WriteTo($TmpSavePath)
+
+                $ReportEvidence.ReportSubmission.Attachment.Hash = @(Get-FileHash -Path $TmpSavePath -Algorithm SHA256)
+            } elseif ($Attachment.ContentType.Name -match "^.*\.(eml|msg)") {
+                New-PIELogger -logSev "s" -Message "Processing .msg/.eml file format" -LogFile $runLog -PassThru
+                $ReportEvidence.ReportSubmission.Attachment.Name = $Attachment.ContentType.Name
+                $ReportEvidence.ReportSubmission.Attachment.Type = $Attachment.ContentType.MimeType
+                $TmpSavePath = [System.IO.FileInfo]::new((Join-Path -Path $tmpFolder -ChildPath $Attachment.ContentType.Name))
                 
+                # Establish FileStream to faciliating extracting e-mail attachment
+                $SaveFileMode = [System.IO.FileMode]::Create
+                $SaveFileAccess = [System.IO.FileAccess]::Write
+                $SaveFileShare = [System.IO.FileShare]::Read
+                $SaveFileStream = New-Object -TypeName System.IO.FileStream($TmpSavePath, $SaveFileMode, $SaveFileAccess, $SaveFileShare)
 
-                if ($Attachment.ContentType.MimeType -eq "message/rfc822") {
-                    New-PIELogger -logSev "s" -Message "Processing rfc822 data format" -LogFile $runLog -PassThru
-                    $ReportEvidence.ReportSubmission.Attachment.Name = $Attachment.Message.From.Address.Replace("@","_").replace(".","-") + ".eml"
-                    $ReportEvidence.ReportSubmission.Attachment.Type = $Attachment.ContentType.MimeType
-                    $TmpSavePath = [System.IO.FileInfo]::new((Join-Path -Path $tmpFolder -ChildPath $ReportEvidence.ReportSubmission.Attachment.Name))
-                    $Attachment.Message.WriteTo($TmpSavePath)
+                # Save attachment to TmpSavePath
+                Try {
+                    $Attachment.Content.DecodeTo($SaveFileStream) | Out-Null
+                } Catch {
+                    New-PIELogger -logSev "e" -Message "Unable to save file $TmpSavePath" -LogFile $runLog -PassThru
+                }
+                # Release FileStream
+                $SaveFileStream.Close()
+            }
+        }
 
-                    $ReportEvidence.ReportSubmission.Attachment.Hash = @(Get-FileHash -Path $TmpSavePath -Algorithm SHA256)
-                } elseif ($Attachment.ContentType.Name -match "^.*\.(eml|msg)") {
-                    New-PIELogger -logSev "s" -Message "Processing .msg/.eml file format" -LogFile $runLog -PassThru
-                    $ReportEvidence.ReportSubmission.Attachment.Name = $Attachment.ContentType.Name
-                    $ReportEvidence.ReportSubmission.Attachment.Type = $Attachment.ContentType.MimeType
-                    $TmpSavePath = [System.IO.FileInfo]::new((Join-Path -Path $tmpFolder -ChildPath $Attachment.ContentType.Name))
+        # Load e-mail from file
+        $Eml = [MimeKit.MimeMessage]::Load($TmpSavePath)
+        $ReportEvidence.ReportSubmission.Attachment.Hash = @(Get-FileHash -Path $TmpSavePath -Algorithm SHA256)
+
+        $ReportEvidence.EvaluationResults.Subject.Original = $Eml.Subject
+        if ($($ReportEvidence.EvaluationResults.Subject.Original) -Match "$specialPattern") {
+            New-PIELogger -logSev "i" -Message "Creating Message Subject without Special Characters to support Case Note." -LogFile $runLog -PassThru
+            $ReportEvidence.EvaluationResults.Subject.Modified = $ReportEvidence.EvaluationResults.Subject.Original -Replace "$specialPattern","?"
+        }
+        New-PIELogger -logSev "d" -Message "Message subject: $($ReportEvidence.EvaluationResults.Subject)" -LogFile $runLog -PassThru
+            
+        #Plain text Message Body
+        $ReportEvidence.EvaluationResults.Body.Original = $Eml.TextBody
+        if ($($ReportEvidence.EvaluationResults.Body.Original) -Match "$specialPattern") {
+            New-PIELogger -logSev "i" -Message "Creating Message Body without Special Characters to support Case Note." -LogFile $runLog -PassThru
+            $ReportEvidence.EvaluationResults.Body.Modified = $ReportEvidence.EvaluationResults.Body.Original -Replace "$specialPattern","?"
+        }                     
+
+        #Headers
+        New-PIELogger -logSev "d" -Message "Processing Headers" -LogFile $runLog -PassThru
+        $ReportEvidence.EvaluationResults.Headers.Source = $Eml.Headers | Select-Object Field, Value
+        Try {
+            New-PIELogger -logSev "i" -Message "Parsing Header Details" -LogFile $runLog -PassThru
+            $ReportEvidence.EvaluationResults.Headers.Details = Invoke-PieHeaderInspect -Headers $ReportEvidence.EvaluationResults.Headers.Source
+        } Catch {
+            New-PIELogger -logSev "e" -Message "Parsing Header Details" -LogFile $runLog -PassThru
+        }
+        
+
+
+        New-PIELogger -logSev "s" -Message "Begin Parsing URLs" -LogFile $runLog -PassThru                  
+        #Load links
+        #Check if HTML Body exists else populate links from Text Body
+        New-PIELogger -logSev "i" -Message "Identifying URLs" -LogFile $runLog -PassThru
                     
+        if ( $($Eml.HTMLBody.Length -gt 0) ) {
+            # Set ReportEvidence HTMLBody Content
+            #HTML Message Body
+            $ReportEvidence.EvaluationResults.HTMLBody.Original = $Eml.HTMLBody.ToString()
+            # Pull URL data from HTMLBody Content
+            New-PIELogger -logSev "d" -Message "Processing URLs from message HTML body" -LogFile $runLog -PassThru
+            $ReportEvidence.EvaluationResults.Links.Source = "HTML"
+            $ReportEvidence.EvaluationResults.Links.Value = Get-PIEURLsFromHTML -HTMLSource $($ReportEvidence.EvaluationResults.HTMLBody.Original)
+
+            # Create copy of HTMLBody with special characters removed.
+            if ($($ReportEvidence.EvaluationResults.HTMLBody.Original) -Match "$specialPattern") {
+                New-PIELogger -logSev "i" -Message "Creating HTMLBody without Special Characters to support Case Note." -LogFile $runLog -PassThru
+                $ReportEvidence.EvaluationResults.HTMLBody.Modified = $ReportEvidence.EvaluationResults.HTMLBody.Original -Replace "$specialPattern","?"
+            }
+        } else {
+            New-PIELogger -logSev "a" -Message "Processing URLs from Text body - Last Effort Approach" -LogFile $runLog -PassThru
+            $ReportEvidence.EvaluationResults.Links.Source = "Text"
+            $ReportEvidence.EvaluationResults.Links.Value = $(Get-PIEURLsFromText -Text $($ReportEvidence.EvaluationResults.Body.Original))
+        }
+        New-PIELogger -logSev "s" -Message "End Parsing URLs" -LogFile $runLog -PassThru
+
+        New-PIELogger -logSev "s" -Message "Begin Attachment block" -LogFile $runLog -PassThru
+        New-PIELogger -logSev "i" -Message "Attachment Count: $($Eml.Attachments.Count)" -LogFile $runLog -PassThru
+
+        if ( $Eml.Attachments.Count -gt 0 ) {
+            # Validate path tmpFolder\attachments exists
+            if (Test-Path "$tmpFolder\attachments" -PathType Container) {
+                New-PIELogger -logSev "i" -Message "Folder $tmpFolder\attatchments\ exists" -LogFile $runLog -PassThru
+            } else {
+                New-PIELogger -logSev "i" -Message "Creating folder: $tmpFolder\attatchments\" -LogFile $runLog -PassThru
+                Try {
+                    New-Item -Path "$tmpFolder\attachments" -type Directory -Force | Out-null
+                } Catch {
+                    New-PIELogger -logSev "e" -Message "Unable to create folder: $tmpFolder\attatchments\" -LogFile $runLog -PassThru
+                }
+            }                
+            # Get the filename and location
+            $Eml.attachments | ForEach-Object {
+                $attachmentName = $_.filename
+                $attachmentFull = $tmpFolder+"attachments\"+$attachmentName
+                New-PIELogger -logSev "d" -Message "Attachment Name: $attachmentName" -LogFile $runLog -PassThru
+                New-PIELogger -logSev "i" -Message "Checking attachment against interestingFilesRegex" -LogFile $runLog -PassThru
+                If ($attachmentName -match $interestingFilesRegex) {
+                    New-PIELogger -logSev "d" -Message "Saving Attachment to destination: $tmpFolder\attachments\$attachmentName" -LogFile $runLog -PassThru
+
                     # Establish FileStream to faciliating extracting e-mail attachment
+                    $TmpSavePath = $attachmentFull
                     $SaveFileMode = [System.IO.FileMode]::Create
                     $SaveFileAccess = [System.IO.FileAccess]::Write
                     $SaveFileShare = [System.IO.FileShare]::Read
-                    $SaveFileStream = New-Object -TypeName System.IO.FileStream($TmpSavePath, $SaveFileMode, $SaveFileAccess, $SaveFileShare)
+                    $SaveFileStream = New-Object -TypeName System.IO.FileStream $TmpSavePath, $SaveFileMode, $SaveFileAccess, $SaveFileShare
 
                     # Save attachment to TmpSavePath
                     Try {
-                        $Attachment.Content.DecodeTo($SaveFileStream) | Out-Null
+                        $_.Content.DecodeTo($SaveFileStream) 
                     } Catch {
-                        New-PIELogger -logSev "e" -Message "Unable to save file $TmpSavePath" -LogFile $runLog -PassThru
+                        New-PIELogger -logSev "e" -Message "Unable to save file $TmpSavePath." -LogFile $runLog -PassThru
                     }
                     # Release FileStream
-                    $SaveFileStream.Close()
-                }
-            }
+                    $SaveFileStream.Close()    
 
-            # Load e-mail from file
-            $Eml = [MimeKit.MimeMessage]::Load($TmpSavePath)
-            $ReportEvidence.ReportSubmission.Attachment.Hash = @(Get-FileHash -Path $TmpSavePath -Algorithm SHA256)
-
-            $ReportEvidence.EvaluationResults.Subject.Original = $Eml.Subject
-            if ($($ReportEvidence.EvaluationResults.Subject.Original) -Match "$specialPattern") {
-                New-PIELogger -logSev "i" -Message "Creating Message Subject without Special Characters to support Case Note." -LogFile $runLog -PassThru
-                $ReportEvidence.EvaluationResults.Subject.Modified = $ReportEvidence.EvaluationResults.Subject.Original -Replace "$specialPattern","?"
-            }
-
-            New-PIELogger -logSev "d" -Message "Message subject: $($ReportEvidence.EvaluationResults.Subject)" -LogFile $runLog -PassThru
-
-                        
-            #Plain text Message Body
-            $ReportEvidence.EvaluationResults.Body.Original = $Eml.TextBody
-            
-            if ($($ReportEvidence.EvaluationResults.Body.Original) -Match "$specialPattern") {
-                New-PIELogger -logSev "i" -Message "Creating Message Body without Special Characters to support Case Note." -LogFile $runLog -PassThru
-                $ReportEvidence.EvaluationResults.Body.Modified = $ReportEvidence.EvaluationResults.Body.Original -Replace "$specialPattern","?"
-            }                     
-
-            #Headers
-            New-PIELogger -logSev "d" -Message "Processing Headers" -LogFile $runLog -PassThru
-            $ReportEvidence.EvaluationResults.Headers.Source = $Eml.Headers
-
-                        
-            New-PIELogger -logSev "s" -Message "Begin Parsing URLs" -LogFile $runLog -PassThru                  
-            #Load links
-            #Check if HTML Body exists else populate links from Text Body
-            New-PIELogger -logSev "i" -Message "Identifying URLs" -LogFile $runLog -PassThru
-                        
-            if ( $($Eml.HTMLBody.Length -gt 0) ) {
-                # Set ReportEvidence HTMLBody Content
-                #HTML Message Body
-                $ReportEvidence.EvaluationResults.HTMLBody.Original = $Eml.HTMLBody.ToString()
-                # Pull URL data from HTMLBody Content
-                New-PIELogger -logSev "d" -Message "Processing URLs from message HTML body" -LogFile $runLog -PassThru
-                $ReportEvidence.EvaluationResults.Links.Source = "HTML"
-                $ReportEvidence.EvaluationResults.Links.Value = Get-PIEURLsFromHTML -HTMLSource $($ReportEvidence.EvaluationResults.HTMLBody.Original)
-
-                # Create copy of HTMLBody with special characters removed.
-                if ($($ReportEvidence.EvaluationResults.HTMLBody.Original) -Match "$specialPattern") {
-                    New-PIELogger -logSev "i" -Message "Creating HTMLBody without Special Characters to support Case Note." -LogFile $runLog -PassThru
-                    $ReportEvidence.EvaluationResults.HTMLBody.Modified = $ReportEvidence.EvaluationResults.HTMLBody.Original -Replace "$specialPattern","?"
-                }
-            } else {
-                New-PIELogger -logSev "a" -Message "Processing URLs from Text body - Last Effort Approach" -LogFile $runLog -PassThru
-                $ReportEvidence.EvaluationResults.Links.Source = "Text"
-                $ReportEvidence.EvaluationResults.Links.Value = $(Get-PIEURLsFromText -Text $($ReportEvidence.EvaluationResults.Body.Original))
-            }
-            New-PIELogger -logSev "s" -Message "End Parsing URLs" -LogFile $runLog -PassThru
-
-            New-PIELogger -logSev "s" -Message "Begin Attachment block" -LogFile $runLog -PassThru
-            New-PIELogger -logSev "i" -Message "Attachment Count: $($Eml.Attachments.Count)" -LogFile $runLog -PassThru
-
-            if ( $Eml.Attachments.Count -gt 0 ) {
-                # Validate path tmpFolder\attachments exists
-                if (Test-Path "$tmpFolder\attachments" -PathType Container) {
-                    New-PIELogger -logSev "i" -Message "Folder $tmpFolder\attatchments\ exists" -LogFile $runLog -PassThru
-                } else {
-                    New-PIELogger -logSev "i" -Message "Creating folder: $tmpFolder\attatchments\" -LogFile $runLog -PassThru
-                    Try {
-                        New-Item -Path "$tmpFolder\attachments" -type Directory -Force | Out-null
-                    } Catch {
-                        New-PIELogger -logSev "e" -Message "Unable to create folder: $tmpFolder\attatchments\" -LogFile $runLog -PassThru
+                    $Attachment = [PSCustomObject]@{
+                        Name = $_.filename
+                        Type = $_.ContentType.MimeType
+                        Hash = @(Get-FileHash -Path $TmpSavePath -Algorithm SHA256)
+                        Plugins = [pscustomobject]@{
+                            VirusTotal = $null
+                        }
                     }
-                }                
-                # Get the filename and location
-                $Eml.attachments | ForEach-Object {
-                    $attachmentName = $_.filename
-                    $attachmentFull = $tmpFolder+"attachments\"+$attachmentName
-                    New-PIELogger -logSev "d" -Message "Attachment Name: $attachmentName" -LogFile $runLog -PassThru
-                    New-PIELogger -logSev "i" -Message "Checking attachment against interestingFilesRegex" -LogFile $runLog -PassThru
-                    If ($attachmentName -match $interestingFilesRegex) {
-                        New-PIELogger -logSev "d" -Message "Saving Attachment to destination: $tmpFolder\attachments\$attachmentName" -LogFile $runLog -PassThru
-
-                        # Establish FileStream to faciliating extracting e-mail attachment
-                        $TmpSavePath = $attachmentFull
-                        $SaveFileMode = [System.IO.FileMode]::Create
-                        $SaveFileAccess = [System.IO.FileAccess]::Write
-                        $SaveFileShare = [System.IO.FileShare]::Read
-                        $SaveFileStream = New-Object -TypeName System.IO.FileStream $TmpSavePath, $SaveFileMode, $SaveFileAccess, $SaveFileShare
-
-                        # Save attachment to TmpSavePath
-                        Try {
-                            $_.Content.DecodeTo($SaveFileStream) 
-                        } Catch {
-                            New-PIELogger -logSev "e" -Message "Unable to save file $TmpSavePath." -LogFile $runLog -PassThru
-                        }
-                        # Release FileStream
-                        $SaveFileStream.Close()    
-
-                        $Attachment = [PSCustomObject]@{
-                            Name = $_.filename
-                            Type = $_.ContentType.MimeType
-                            Hash = @(Get-FileHash -Path $TmpSavePath -Algorithm SHA256)
-                            Plugins = [pscustomobject]@{
-                                VirusTotal = $null
-                            }
-                        }
-                        # Add Attachment object to Attachments list
-                        if ($Attachments -notcontains $attachment) {
-                            $Attachments.Add($Attachment)
-                        }
+                    # Add Attachment object to Attachments list
+                    if ($Attachments -notcontains $attachment) {
+                        $Attachments.Add($Attachment)
                     }
                 }
             }
-                        
-
-            $ReportEvidence.EvaluationResults.Sender = $Eml.From.Address
-            New-PIELogger -logSev "i" -Message "Origin sender set to: $($ReportEvidence.EvaluationResults.Sender )" -LogFile $runLog -PassThru
-            $ReportEvidence.EvaluationResults.SenderDisplayName = $Eml.From.Name
-            if ($Eml.To.count -ge 1 -or $Eml.To.Length -ge 1) {
-                $ReportEvidence.EvaluationResults.Recipient.To = $Eml.To.Address
-            } else {
-                $ReportEvidence.EvaluationResults.Recipient.To = $ReportEvidence.ReportSubmission.Sender
+        }
+                    
+        $ReportEvidence.EvaluationResults.Sender = $Eml.From.Address
+        New-PIELogger -logSev "i" -Message "Origin sender set to: $($ReportEvidence.EvaluationResults.Sender )" -LogFile $runLog -PassThru
+        if ($LrTrueId) {
+            New-PIELogger -logSev "s" -Message "LogRhythm API - Begin TrueIdentity Lookup" -LogFile $runLog -PassThru
+            New-PIELogger -logSev "i" -Message "LogRhythm API - TrueID Sender: $($ReportEvidence.EvaluationResults.Sender)" -LogFile $runLog -PassThru
+            $LrTrueIdSender = Get-LrIdentities -Identifier $ReportEvidence.EvaluationResults.Sender
+            if ($LrTrueIdSender) {
+                New-PIELogger -logSev "i" -Message "LogRhythm API - Sender Identitity Id: $($LrTrueIdSender.identityId)" -LogFile $runLog -PassThru
+                $ReportEvidence.EvaluationResults.LogRhythmTrueId.Sender = $LrTrueIdSender
             }
-            $ReportEvidence.EvaluationResults.Recipient.CC = $Eml.CC
-            
-            $ReportEvidence.EvaluationResults.UtcDate = $Eml.Date.UtcDateTime.ToString("yyyy-MM-ddTHHmmssffZ")
-            New-PIELogger -logSev "i" -Message "Origin Sender Display Name set to: $($ReportEvidence.EvaluationResults.SenderDisplayName)" -LogFile $runLog -PassThru
-
+            Start-Sleep 0.2
+            New-PIELogger -logSev "i" -Message "LogRhythm API - TrueID Recipient: $($ReportEvidence.ReportSubmission.Sender)" -LogFile $runLog -PassThru
+            $LrTrueIdRecipient = Get-LrIdentities -Identifier $ReportEvidence.ReportSubmission.Sender
+            if ($LrTrueIdRecipient) {
+                New-PIELogger -logSev "i" -Message "LogRhythm API - Recipient Identitity Id: $($LrTrueIdRecipient.identityId)" -LogFile $runLog -PassThru
+                $ReportEvidence.EvaluationResults.LogRhythmTrueId.Recipient = $LrTrueIdRecipient
+            }
+            New-PIELogger -logSev "s" -Message "LogRhythm API - End TrueIdentity Lookup" -LogFile $runLog -PassThru
+        }
         
-            New-PIELogger -logSev "s" -Message "Begin Link Processing" -LogFile $runLog -PassThru
-            
-            $EmailUrls = [list[string]]::new()
-            $EmailDomains = [list[string]]::new()
+        $ReportEvidence.EvaluationResults.SenderDisplayName = $Eml.From.Name
+        if ($Eml.To.count -ge 1 -or $Eml.To.Length -ge 1) {
+            $ReportEvidence.EvaluationResults.Recipient.To = $Eml.To.Address
+        } else {
+            $ReportEvidence.EvaluationResults.Recipient.To = $ReportEvidence.ReportSubmission.Sender
+        }
+        $ReportEvidence.EvaluationResults.Recipient.CC = $Eml.CC
+        $ReportEvidence.EvaluationResults.UtcDate = $Eml.Date.UtcDateTime.ToString("yyyy-MM-ddTHHmmssffZ")
+        New-PIELogger -logSev "i" -Message "Origin Sender Display Name set to: $($ReportEvidence.EvaluationResults.SenderDisplayName)" -LogFile $runLog -PassThru
+    
+        # Begin Section - Search
+        if ($LrLogSearch) {
+            New-PIELogger -logSev "s" -Message "LogRhythm API - Begin Log Search" -LogFile $runLog -PassThru
+            $LrSearchTask = Invoke-PIELrMsgSearch -EmailSender $($ReportEvidence.EvaluationResults.Sender) -Subject $($ReportEvidence.EvaluationResults.Subject.Original) -SocMailbox $SocMailbox
+            New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($LrSearchTask.TaskId) Status: Starting" -LogFile $runLog -PassThru
+        }
 
-            if ($ReportEvidence.EvaluationResults.Links.Value) {
-                $UrlDetails = [list[pscustomobject]]::new()
-                if ($ReportEvidence.EvaluationResults.Links.Source -like "HTML") {
-                    New-PIELogger -logSev "i" -Message "Link processing from HTML Source" -LogFile $runLog -PassThru
-                    $EmailUrls = $($ReportEvidence.EvaluationResults.Links.Value | Where-Object -Property Type -like "Url")
-                    $DomainGroups = $EmailUrls.hostname | group-object
-                    $UniqueDomains = $DomainGroups.count
-                    New-PIELogger -logSev "i" -Message "Links: $($EmailUrls.count) Domains: $UniqueDomains" -LogFile $runLog -PassThru
-                    ForEach ($UniqueDomain in $DomainGroups) {  
-                        New-PIELogger -logSev "i" -Message "Domain: $($UniqueDomain.Name) URLs: $($UniqueDomain.Count)" -LogFile $runLog -PassThru
-                        if ($UniqueDomain.count -ge 2) {
-                            # Collect details for initial
-                            $ScanTarget = $EmailUrls | Where-Object -Property hostname -like $UniqueDomain.Name | Select-Object -ExpandProperty Url -First 1
-                            New-PIELogger -logSev "i" -Message "Retrieve Domain Details - Url: $ScanTarget" -LogFile $runLog -PassThru
-                            $DetailResults = Get-PIEUrlDetails -Url $ScanTarget -EnablePlugins -VTDomainScan
-                            if ($UrlDetails -NotContains $DetailResults) {
-                                $UrlDetails.Add($DetailResults)
-                            }
+        New-PIELogger -logSev "s" -Message "Begin Link Processing" -LogFile $runLog -PassThru
+        $EmailUrls = [list[string]]::new()
+        $EmailDomains = [list[string]]::new()
 
-                            # Provide summary but skip plugin output for remainder URLs
-                            $SummaryLinks = $EmailUrls | Where-Object -Property hostname -like $UniqueDomain.Name | Select-Object -ExpandProperty Url -Skip 1
-                            ForEach ($SummaryLink in $SummaryLinks) {
-                                $DetailResults = Get-PIEUrlDetails -Url $SummaryLink
-                                if ($UrlDetails -NotContains $DetailResults) {
-                                    $UrlDetails.Add($DetailResults)
-                                }
-                            }
-                        } else {
-                            $ScanTargets = $EmailUrls | Where-Object -Property hostname -like $UniqueDomain.Name | Select-Object -ExpandProperty Url
-                            ForEach ($ScanTarget in $ScanTargets) {
-                                New-PIELogger -logSev "i" -Message "Retrieve URL Details - Url: $ScanTarget" -LogFile $runLog -PassThru
-                                $DetailResults = Get-PIEUrlDetails -Url $ScanTarget -EnablePlugins
-                                if ($UrlDetails -NotContains $DetailResults) {
-                                    $UrlDetails.Add($DetailResults)
-                                }
-                            }
-                        }
-                    }
-                }
-                if ($ReportEvidence.EvaluationResults.Links.Source -like "Text") {
-                    $EmailUrls = $ReportEvidence.EvaluationResults.Links.Value
-                    ForEach ($EmailURL in $EmailUrls) {
-                        $DetailResults  = Get-PIEUrlDetails -Url $EmailURL
+        if ($ReportEvidence.EvaluationResults.Links.Value) {
+            $UrlDetails = [list[pscustomobject]]::new()
+            if ($ReportEvidence.EvaluationResults.Links.Source -like "HTML") {
+                New-PIELogger -logSev "i" -Message "Link processing from HTML Source" -LogFile $runLog -PassThru
+                $EmailUrls = $($ReportEvidence.EvaluationResults.Links.Value | Where-Object -Property Type -like "Url")
+                $DomainGroups = $EmailUrls.hostname | group-object
+                $UniqueDomains = $DomainGroups.count
+                New-PIELogger -logSev "i" -Message "Links: $($EmailUrls.count) Domains: $UniqueDomains" -LogFile $runLog -PassThru
+                ForEach ($UniqueDomain in $DomainGroups) {  
+                    New-PIELogger -logSev "i" -Message "Domain: $($UniqueDomain.Name) URLs: $($UniqueDomain.Count)" -LogFile $runLog -PassThru
+                    if ($UniqueDomain.count -ge 2) {
+                        # Collect details for initial
+                        $ScanTarget = $EmailUrls | Where-Object -Property hostname -like $UniqueDomain.Name | Select-Object -ExpandProperty Url -First 1
+                        New-PIELogger -logSev "i" -Message "Retrieve Domain Details - Url: $ScanTarget" -LogFile $runLog -PassThru
+                        $DetailResults = Get-PIEUrlDetails -Url $ScanTarget -EnablePlugins -VTDomainScan
                         if ($UrlDetails -NotContains $DetailResults) {
                             $UrlDetails.Add($DetailResults)
                         }
-                    }
-                }
-                # Add the UrlDetails results to the ReportEvidence object.
-                if ($UrlDetails) {
-                    $ReportEvidence.EvaluationResults.Links.Details = $UrlDetails
-                }
-            }
-            
-            if ($ReportEvidence.EvaluationResults.Links.Details) {                    
-                New-PIELogger -logSev "d" -Message "Writing list of unique domains to $tmpFolder`domains.txt" -LogFile $runLog -PassThru
-                Try {
-                    $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Domain -Unique) > "$tmpFolder`domains.txt"
-                } Catch {
-                    New-PIELogger -logSev "e" -Message "Unable to write to file $tmpFolder`domains.txt" -LogFile $runLog -PassThru
-                }
 
-                
-                New-PIELogger -logSev "d" -Message "Writing list of unique urls to $tmpFolder`links.txt" -LogFile $runLog -PassThru
-                Try {
-                    $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Url -Unique) > "$tmpFolder`links.txt"
-                } Catch {
-                    New-PIELogger -logSev "e" -Message "Unable to write to file $tmpFolder`links.txt" -LogFile $runLog -PassThru
-                }
-                
-                
-                $CountLinks = $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Url -Unique | Measure-Object | Select-Object -ExpandProperty Count)
-                New-PIELogger -logSev "i" -Message "Total Unique Links: $countLinks" -LogFile $runLog -PassThru
-
-                $CountDomains = $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Domain -Unique | Measure-Object | Select-Object -ExpandProperty Count)
-                New-PIELogger -logSev "i" -Message "Total Unique Domains: $countDomains" -LogFile $runLog -PassThru
-            }
-            New-PIELogger -logSev "s" -Message "End Link Processing" -LogFile $runLog -PassThru
-
-            New-PIELogger -logSev "s" -Message "Begin Attachment Processing" -LogFile $runLog -PassThru
-            ForEach ($Attachment in $ReportEvidence.EvaluationResults.Attachments) {
-                New-PIELogger -logSev "i" -Message "Attachment: $($Attachment.Name)" -LogFile $runLog -PassThru
-                if ($LrtConfig.VirusTotal.ApiKey) {
-                    New-PIELogger -logSev "i" -Message "VirusTotal - Submitting Hash: $($Attachment.Hash.Hash)" -LogFile $runLog -PassThru
-                    $VTResults = Get-VtHashReport -Hash $Attachment.Hash.Hash
-                    # Response Code 0 = Result not in dataset
-                    if ($VTResults.response_code -eq 0) {
-                        New-PIELogger -logSev "i" -Message "VirusTotal - Result not in dataset." -LogFile $runLog -PassThru
-                        $VTResponse = [PSCustomObject]@{
-                            Status = $true
-                            Note = $VTResults.verbose_msg
-                            Results = $VTResults
+                        # Provide summary but skip plugin output for remainder URLs
+                        $SummaryLinks = $EmailUrls | Where-Object -Property hostname -like $UniqueDomain.Name | Select-Object -ExpandProperty Url -Skip 1
+                        ForEach ($SummaryLink in $SummaryLinks) {
+                            $DetailResults = Get-PIEUrlDetails -Url $SummaryLink
+                            if ($UrlDetails -NotContains $DetailResults) {
+                                $UrlDetails.Add($DetailResults)
+                            }
                         }
-                        $Attachment.Plugins.VirusTotal = $VTResponse
-                    } elseif ($VTResults.response_code -eq 1) {
-                        # Response Code 1 = Result in dataset
-                        New-PIELogger -logSev "i" -Message "VirusTotal - Result in dataset." -LogFile $runLog -PassThru
-                        $VTResponse = [PSCustomObject]@{
-                            Status = $true
-                            Note = $VTResults.verbose_msg
-                            Results = $VTResults
-                        }
-                        $Attachment.Plugins.VirusTotal = $VTResults
                     } else {
-                        New-PIELogger -logSev "i" -Message "VirusTotal - Request failed." -LogFile $runLog -PassThru
-                        $VTResponse = [PSCustomObject]@{
-                            Status = $false
-                            Note = "Requested failed."
-                            Results = $VTResults
+                        $ScanTargets = $EmailUrls | Where-Object -Property hostname -like $UniqueDomain.Name | Select-Object -ExpandProperty Url
+                        ForEach ($ScanTarget in $ScanTargets) {
+                            New-PIELogger -logSev "i" -Message "Retrieve URL Details - Url: $ScanTarget" -LogFile $runLog -PassThru
+                            $DetailResults = Get-PIEUrlDetails -Url $ScanTarget -EnablePlugins
+                            if ($UrlDetails -NotContains $DetailResults) {
+                                $UrlDetails.Add($DetailResults)
+                            }
                         }
-                        $Attachment.Plugins.VirusTotal = $VTResponse
                     }
                 }
             }
-            New-PIELogger -logSev "s" -Message "End Attachment Processing" -LogFile $runLog -PassThru
-            # Create a case folder
-            New-PIELogger -logSev "s" -Message "Creating Evidence Folder" -LogFile $runLog -PassThru
-            # - Another shot
-            $caseID = Get-Date -Format M-d-yyyy_h-m-s
-            if ( $ReportEvidence.EvaluationResults.Sender.Contains("@") -eq $true) {
-                $spammerName = $ReportEvidence.EvaluationResults.Sender.Split("@")[0]
-                $spammerDomain = $ReportEvidence.EvaluationResults.Sender.Split("@")[1]
-                New-PIELogger -logSev "d" -Message "Spammer Name: $spammerName Spammer Domain: $spammerDomain" -LogFile $runLog -PassThru
-                $caseID = $caseID+"_Sender_"+$spammerName+".at."+$spammerDomain
-            } else {
-                New-PIELogger -logSev "d" -Message "Case created as Fwd Message source" -LogFile $runLog -PassThru
-                $caseID = $caseID+"_"+$ReportEvidence.EvaluationResults.SenderDisplayName
+            if ($ReportEvidence.EvaluationResults.Links.Source -like "Text") {
+                $EmailUrls = $ReportEvidence.EvaluationResults.Links.Value
+                ForEach ($EmailURL in $EmailUrls) {
+                    $DetailResults  = Get-PIEUrlDetails -Url $EmailURL
+                    if ($UrlDetails -NotContains $DetailResults) {
+                        $UrlDetails.Add($DetailResults)
+                    }
+                }
             }
-            try {
-                New-PIELogger -logSev "i" -Message "Creating Directory: $caseFolder$caseID" -LogFile $runLog -PassThru
-                mkdir $caseFolder$caseID | out-null
-            } Catch {
-                New-PIELogger -logSev "e" -Message "Unable to create directory: $caseFolder$caseID" -LogFile $runLog -PassThru
+            # Add the UrlDetails results to the ReportEvidence object.
+            if ($UrlDetails) {
+                $ReportEvidence.EvaluationResults.Links.Details = $UrlDetails
             }
-            # Support adding Network Share Location to the Case
-            $hostname = hostname
-            $networkShare = "\\$hostname\PIE\cases\$caseID\"
-
-            # Copy evidence files to case folder
-            New-PIELogger -logSev "i" -Message "Moving interesting files to case folder" -LogFile $runLog -PassThru
+        }
+        
+        if ($ReportEvidence.EvaluationResults.Links.Details) {                    
+            New-PIELogger -logSev "d" -Message "Writing list of unique domains to $tmpFolder`domains.txt" -LogFile $runLog -PassThru
             Try {
-                # Make sure those files are moved
-                Copy-Item -Force -Recurse "$tmpFolder*" -Destination $caseFolder$caseID | Out-Null
+                $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Domain -Unique) > "$tmpFolder`domains.txt"
             } Catch {
-                New-PIELogger -logSev "e" -Message "Unable to copy contents from $tmpFolder to $CaseFolder$CaseId" -LogFile $runLog -PassThru
+                New-PIELogger -logSev "e" -Message "Unable to write to file $tmpFolder`domains.txt" -LogFile $runLog -PassThru
             }
             
-            # Cleanup Temporary Folder
+            New-PIELogger -logSev "d" -Message "Writing list of unique urls to $tmpFolder`links.txt" -LogFile $runLog -PassThru
             Try {
-                Remove-Item "$tmpFolder*" -Force -Recurse | Out-Null
+                $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Url -Unique) > "$tmpFolder`links.txt"
             } Catch {
-                New-PIELogger -logSev "e" -Message "Unable to purge contents from $tmpFolder" -LogFile $runLog -PassThru
-            }  
+                New-PIELogger -logSev "e" -Message "Unable to write to file $tmpFolder`links.txt" -LogFile $runLog -PassThru
+            }
+            
+            $CountLinks = $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Url -Unique | Measure-Object | Select-Object -ExpandProperty Count)
+            New-PIELogger -logSev "i" -Message "Total Unique Links: $countLinks" -LogFile $runLog -PassThru
+
+            $CountDomains = $($ReportEvidence.EvaluationResults.Links.Details.ScanTarget | Select-Object -ExpandProperty Domain -Unique | Measure-Object | Select-Object -ExpandProperty Count)
+            New-PIELogger -logSev "i" -Message "Total Unique Domains: $countDomains" -LogFile $runLog -PassThru
+        }
+        New-PIELogger -logSev "s" -Message "End Link Processing" -LogFile $runLog -PassThru
+
+        New-PIELogger -logSev "s" -Message "Begin Attachment Processing" -LogFile $runLog -PassThru
+        ForEach ($Attachment in $ReportEvidence.EvaluationResults.Attachments) {
+            New-PIELogger -logSev "i" -Message "Attachment: $($Attachment.Name)" -LogFile $runLog -PassThru
+            if ($LrtConfig.VirusTotal.ApiKey) {
+                New-PIELogger -logSev "i" -Message "VirusTotal - Submitting Hash: $($Attachment.Hash.Hash)" -LogFile $runLog -PassThru
+                $VTResults = Get-VtHashReport -Hash $Attachment.Hash.Hash
+                # Response Code 0 = Result not in dataset
+                if ($VTResults.response_code -eq 0) {
+                    New-PIELogger -logSev "i" -Message "VirusTotal - Result not in dataset." -LogFile $runLog -PassThru
+                    $VTResponse = [PSCustomObject]@{
+                        Status = $true
+                        Note = $VTResults.verbose_msg
+                        Results = $VTResults
+                    }
+                    $Attachment.Plugins.VirusTotal = $VTResponse
+                } elseif ($VTResults.response_code -eq 1) {
+                    # Response Code 1 = Result in dataset
+                    New-PIELogger -logSev "i" -Message "VirusTotal - Result in dataset." -LogFile $runLog -PassThru
+                    $VTResponse = [PSCustomObject]@{
+                        Status = $true
+                        Note = $VTResults.verbose_msg
+                        Results = $VTResults
+                    }
+                    $Attachment.Plugins.VirusTotal = $VTResults
+                } else {
+                    New-PIELogger -logSev "i" -Message "VirusTotal - Request failed." -LogFile $runLog -PassThru
+                    $VTResponse = [PSCustomObject]@{
+                        Status = $false
+                        Note = "Requested failed."
+                        Results = $VTResults
+                    }
+                    $Attachment.Plugins.VirusTotal = $VTResponse
+                }
+            }
+        }
+        New-PIELogger -logSev "s" -Message "End Attachment Processing" -LogFile $runLog -PassThru
+
+        # Create a case folder
+        New-PIELogger -logSev "s" -Message "Creating Evidence Folder" -LogFile $runLog -PassThru
+        # - Another shot
+        $caseID = Get-Date -Format M-d-yyyy_h-m-s
+        if ( $ReportEvidence.EvaluationResults.Sender.Contains("@") -eq $true) {
+            $spammerName = $ReportEvidence.EvaluationResults.Sender.Split("@")[0]
+            $spammerDomain = $ReportEvidence.EvaluationResults.Sender.Split("@")[1]
+            New-PIELogger -logSev "d" -Message "Spammer Name: $spammerName Spammer Domain: $spammerDomain" -LogFile $runLog -PassThru
+            $caseID = $caseID+"_Sender_"+$spammerName+".at."+$spammerDomain           
+        } else {
+            New-PIELogger -logSev "d" -Message "Case created as Fwd Message source" -LogFile $runLog -PassThru
+            $caseID = $caseID+"_"+$ReportEvidence.EvaluationResults.SenderDisplayName
+        }
+        try {
+            New-PIELogger -logSev "i" -Message "Creating Directory: $caseFolder$caseID" -LogFile $runLog -PassThru
+            mkdir $caseFolder$caseID | out-null
+        } Catch {
+            New-PIELogger -logSev "e" -Message "Unable to create directory: $caseFolder$caseID" -LogFile $runLog -PassThru
+        }
+        # Support adding Network Share Location to the Case
+        $hostname = hostname
+        $networkShare = "\\$hostname\PIE\cases\$caseID\"
+
+        # Copy evidence files to case folder
+        New-PIELogger -logSev "i" -Message "Moving interesting files to case folder from $tmpFolder" -LogFile $runLog -PassThru
+        Try {
+            # Make sure those files are moved
+            Copy-Item -Force -Recurse "$tmpFolder*" -Destination $caseFolder$caseID | Out-Null
+        } Catch {
+            New-PIELogger -logSev "e" -Message "Unable to copy contents from $tmpFolder to $CaseFolder$CaseId" -LogFile $runLog -PassThru
+        }
+        
+        # Cleanup Temporary Folder
+        New-PIELogger -logSev "i" -Message "Purging contents from $tmpFolder" -LogFile $runLog -PassThru
+        Try {
+            Remove-Item "$tmpFolder*" -Force -Recurse | Out-Null
+        } Catch {
+            New-PIELogger -logSev "e" -Message "Unable to purge contents from $tmpFolder" -LogFile $runLog -PassThru
+        }  
+        
+        # Resume Section - Search
+        if ($LrSearchTask) {
+            New-PIELogger -logSev "s" -Message "LogRhythm API - Poll Search Status" -LogFile $runLog -PassThru
+    
+            New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($LrSearchTask.TaskId)" -LogFile $runLog -PassThru
+            if ($LrSearchTask.StatusCode -eq 200) {
+                do {
+                    $SearchStatus = Get-LrSearchResults -TaskId $LrSearchTask.TaskId -PageSize 1000 -PageOrigin 0
+                    Start-Sleep 10
+                    New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($LrSearchTask.TaskId) Status: $($SearchStatus.TaskStatus)" -LogFile $runLog -PassThru
+                } until ($SearchStatus.TaskStatus -like "Completed*")
+                New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($LrSearchTask.TaskId) Status: $($SearchStatus.TaskStatus)" -LogFile $runLog -PassThru
+                $ReportEvidence.LogRhythmSearch.TaskId = $LrSearchTask.TaskId
+                $ReportEvidence.LogRhythmSearch.Results = $SearchStatus
+                $ReportEvidence.LogRhythmSearch.Status = $SearchStatus.TaskStatus
+            } else {
+                New-PIELogger -logSev "s" -Message "LogRhythm Search API - Unable to successfully initiate " -LogFile $runLog -PassThru
+                $ReportEvidence.LogRhythmSearch.Results = $LrSearchTask
+            }
+
+            if ($($ReportEvidence.LogRhythmSearch.Status) -like "Completed*" -and ($($ReportEvidence.LogRhythmSearch.Status) -notlike "Completed: No Results")) {
+                $LogResults = $ReportEvidence.LogRhythmSearch.Results.Items
+                
+                # Build summary:
+                $ReportEvidence.LogRhythmSearch.Summary.Quantity = $LogResults.count
+                $ReportEvidence.LogRhythmSearch.Summary.Recipient = $LogResults | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Summary.Sender = $LogResults | Select-Object -ExpandProperty sender -Unique
+                $ReportEvidence.LogRhythmSearch.Summary.Subject = $LogResults | Select-Object -ExpandProperty subject -Unique
+
+                # Establish Unique Sender & Subject log messages
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs = $LogResults | Where-Object {$_.sender -like $($ReportEvidence.EvaluationResults.Sender) -and $_.subject -like $($ReportEvidence.EvaluationResults.Subject.Original)}
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Quantity = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs.count
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Recipients = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Subject = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs | Select-Object -ExpandProperty subject -Unique
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Sender = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs | Select-Object -ExpandProperty sender -Unique
+                # Establish Unique Sender log messages
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Logs = $LogResults | Where-Object {$_.sender -like $($ReportEvidence.EvaluationResults.Sender) -and $_ -notcontains $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs}
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Quantity = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs.count
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Recipients = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Subjects = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs | Select-Object -ExpandProperty subject -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Sender = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs | Select-Object -ExpandProperty sender -Unique
+                # Establish Unique Subject log messages
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Logs = $LogResults | Where-Object {$_.subject -like $($ReportEvidence.EvaluationResults.Subject.Original) -and $_ -notcontains $ReportEvidence.LogRhythmSearch.Details.Sender.Logs -and $_ -notcontains $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs}
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Quantity = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs.count
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Recipients = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Subject = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs | Select-Object -ExpandProperty subject -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Senders = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs | Select-Object -ExpandProperty sender -Unique
+            }
+            New-PIELogger -logSev "s" -Message "LogRhythm API - End Log Search" -LogFile $runLog -PassThru
+        }
+        # End Section - Search
 
 
+        # Conclude runtime metrics
+        $EndTime = (get-date).ToUniversalTime()
+        $ReportEvidence.Meta.Metrics.End = $EndTime.ToString("yyyy-MM-ddTHHmmssffZ")
+        $Duration = New-Timespan -Start $StartTime -End $EndTime
+        $ReportEvidence.Meta.Metrics.Duration = $Duration.ToString("%m\.%s\.%f")
+        
+        # Create Summary Notes for Case Output
+        $CaseSummaryNote = Format-PIECaseSummary -ReportEvidence $ReportEvidence
+        $CaseEvidenceSummaryNote = Format-PIEEvidenceSummary -EvaluationResults $ReportEvidence.EvaluationResults
+
+        if ($ReportEvidence.EvaluationResults.Headers.Details) {
+            $CaseEvidenceHeaderSummary = Format-PieHeaderSummary -ReportEvidence $ReportEvidence
+        }
+
+        if ($LrCaseOutput) {
             New-PIELogger -logSev "s" -Message "LogRhythm API - Create Case" -LogFile $runLog -PassThru
             if ( $ReportEvidence.EvaluationResults.Sender.Contains("@") -eq $true) {
                 New-PIELogger -logSev "d" -Message "LogRhythm API - Create Case with Sender Info" -LogFile $runLog -PassThru
@@ -768,9 +912,9 @@ if ( $log -eq $true) {
             $ReportEvidence.LogRhythmCase.Number = $CaseDetails.number
 
             Try {
-                $ReportEvidence.LogRhythmCase.Number | Out-File "$caseFolder$caseID\case.txt"
+                $ReportEvidence.LogRhythmCase.Number | Out-File "$caseFolder$caseID\lr_casenumber.txt"
             } Catch {
-                New-PIELogger -logSev "e" -Message "Unable to move $pieFolder\plugins\case.txt to $caseFolder$caseID\" -LogFile $runLog -PassThru
+                New-PIELogger -logSev "e" -Message "Unable to move $pieFolder\plugins\lr_casenumber.txt to $caseFolder$caseID\" -LogFile $runLog -PassThru
             }
             
             # Establish Case URL to ReportEvidence Object
@@ -784,64 +928,49 @@ if ( $log -eq $true) {
                 Update-LrCaseEarliestEvidence -Id $($ReportEvidence.LogRhythmCase.Number) -Timestamp $EvidenceTimestamp
             } else {
                 # Based on report submission for evaluation
-                [datetime] $Timestamp = [datetime]::parseexact($ReportEvidence.ReportSubmission.UtcDate, "yyyy-MM-ddTHHmmssffZ", $null)
+                [datetime] $EvidenceTimestamp = [datetime]::parseexact($ReportEvidence.ReportSubmission.UtcDate, "yyyy-MM-ddTHHmmssffZ", $null)
                 Update-LrCaseEarliestEvidence -Id $($ReportEvidence.LogRhythmCase.Number) -Timestamp $EvidenceTimestamp
             }
-            
-        
-            # Tag the case as phishing
-            New-PIELogger -logSev "i" -Message "LogRhythm API - Applying case tag" -LogFile $runLog -PassThru
-            if ( $defaultCaseTag ) {
-                $TagStatus = Get-LrTags -Name $defaultCaseTag -Exact
-                Start-Sleep 0.2
-                if (!$TagStatus) {
-                        $TagStatus = New-LrTag -Tag $defaultCaseTag -PassThru
-                        Start-Sleep 0.2
+
+
+            # Tag the case
+            if ( $LrCaseTags ) {
+                New-PIELogger -logSev "i" -Message "LogRhythm API - Applying case tags" -LogFile $runLog -PassThru
+                ForEach ($LrTag in $LrCaseTags) {
+                    $TagStatus = Get-LrTags -Name $LrTag -Exact
+                    Start-Sleep 0.2
+                    if (!$TagStatus) {
+                            $TagStatus = New-LrTag -Tag $LrTag -PassThru
+                            Start-Sleep 0.2
+                    }
+                    if ($TagStatus) {
+                            Add-LrCaseTags -Id $ReportEvidence.LogRhythmCase.Number -Tags $TagStatus.Number
+                            New-PIELogger -logSev "i" -Message "LogRhythm API - Adding tag $LrTag Tag Number $($TagStatus.number)" -LogFile $runLog -PassThru
+                            Start-Sleep 0.2
+                    }
                 }
-                if ($TagStatus) {
-                        Add-LrCaseTags -Id $ReportEvidence.LogRhythmCase.Number -Tags $TagStatus.Number
-                        New-PIELogger -logSev "i" -Message "LogRhythm API - Adding tag $defaultCaseTag Tag Number $($TagStatus.number)" -LogFile $runLog -PassThru
-                        Start-Sleep 0.2
-                }
+                New-PIELogger -logSev "i" -Message "LogRhythm API - End applying case tags" -LogFile $runLog -PassThru
             }
 
             # Adding and assigning other users
             New-PIELogger -logSev "i" -Message "LogRhythm API - Assigning case collaborators" -LogFile $runLog -PassThru
-            if ( $caseCollaborators ) {
-                Add-LrCaseCollaborators -Id $ReportEvidence.LogRhythmCase.Number -Names $caseCollaborators
+            if ( $LrCaseCollaborators ) {
+                Add-LrCaseCollaborators -Id $ReportEvidence.LogRhythmCase.Number -Names $LrCaseCollaborators
+            } else {
+                New-PIELogger -logSev "i" -Message "LogRhythm API - Case Collaborators Omision - Collaborators not defined" -LogFile $runLog -PassThru
             }
 
-            # Begin Section - Search
-            if ($SearchLogSources) {
-                $SearchSender = New-LrSearch -MaxMsgsToQuery 10000 -QueryTimeout 300 -QueryEventManager $false -LogSources $SearchLogSources -MsgFilterType grouped -GroupFilterOperator and -GroupFilterMode filterin -Param1MetaField "Sender" -Param1Value $($ReportEvidence.EvaluationResults.Sender) -Verbose
-                New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($SearchSender.TaskId) Status: Starting" -LogFile $runLog -PassThru
-                if ($SearchSender.StatusCode -eq 200) {
-                    do {
-                        $SearchStatus = Get-LrSearchResults -TaskId $SearchSender.TaskId -Verbose -PageSize 1000
-                        Start-Sleep 10
-                        New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($SearchSender.TaskId) Status: Searching" -LogFile $runLog -PassThru
-                    } until ($SearchStatus.TaskStatus -like "Completed:*")
-                    New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($SearchSender.TaskId) Status: Complete" -LogFile $runLog -PassThru
-                    $ReportEvidence.LogRhythmSearch = $SearchStatus
-                } else {
-                    $ReportEvidence.LogRhythmSearch = $SearchSender
+            # Add case playbook if playbook has been defined.
+            if ($LrCasePlaybook) {
+                New-PIELogger -logSev "s" -Message "Begin LogRhythm Playbook Block" -LogFile $runLog -PassThru
+                ForEach ($LrPlaybook in $LrCasePlaybook) {
+                    New-PIELogger -logSev "i" -Message "LogRhythm API - Adding Playbook:$LrPlaybookto Case:$($ReportEvidence.LogRhythmCase.Number)" -LogFile $runLog -PassThru
+                    Add-LrCasePlaybook -Id $ReportEvidence.LogRhythmCase.Number -Playbook $LrPlaybook
                 }
-            }
-            # End Section - Search
-    
-
-# ================================================================================
-# Case Closeout
-# ================================================================================
-            
-            New-PIELogger -logSev "s" -Message "Begin LogRhythm Playbook Block" -LogFile $runLog -PassThru
-            if ($casePlaybook) {
-                New-PIELogger -logSev "i" -Message "LogRhythm API - Adding Playbook:$casePlaybook to Case:$($ReportEvidence.LogRhythmCase.Number)" -LogFile $runLog -PassThru
-                Add-LrCasePlaybook -Id $ReportEvidence.LogRhythmCase.Number -Playbook $casePlaybook
+                New-PIELogger -logSev "s" -Message "End LogRhythm Playbook Block" -LogFile $runLog -PassThru
             } else {
                 New-PIELogger -logSev "i" -Message "LogRhythm API - Playbook Omision - Playbook not defined" -LogFile $runLog -PassThru
             }
-            New-PIELogger -logSev "s" -Message "End LogRhythm Playbook Block" -LogFile $runLog -PassThru
 
 
             # Add Link plugin output to Case
@@ -887,90 +1016,155 @@ if ( $log -eq $true) {
                 }
             }
 
-            # Add Link/Attachment Summary as second Case note
-            $CaseEvidenceSummaryNote = Format-PIEEvidenceSummary -EvaluationResults $ReportEvidence.EvaluationResults
-            Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text $CaseEvidenceSummaryNote.Substring(0,[System.Math]::Min(20000, $CaseEvidenceSummaryNote.Length))
+            if ($CaseEvidenceHeaderSummary) {
+                New-PIELogger -logSev "i" -Message "LogRhythm API - Copying e-mail header details summary to case" -LogFile $runLog -PassThru
+                $NoteStatus = Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text $CaseEvidenceHeaderSummary.Substring(0,[System.Math]::Min(20000, $CaseEvidenceHeaderSummary.Length)) -PassThru
+                if ($NoteStatus.Error) {
+                    New-PIELogger -logSev "e" -Message "LogRhythm API - Unable to add CaseEvidenceHeaderSummary to LogRhythm Case." -LogFile $runLog -PassThru
+                    New-PIELogger -logSev "d" -Message "LogRhythm API - Code: $($NoteStatus.Error.Code) Note: $($NoteStatus.Error.Note)" -LogFile $runLog -PassThru
+                }
+            }
 
-            # Conclude runtime metrics
-            $EndTime = (get-date).ToUniversalTime()
-            $ReportEvidence.Meta.Metrics.End = $EndTime.ToString("yyyy-MM-ddTHHmmssffZ")
-            $Duration = New-Timespan -Start $StartTime -End $EndTime
-            $ReportEvidence.Meta.Metrics.Duration = $Duration.ToString("%m\.%s\.%f")
+            # Search note
+            if ($ReportEvidence.LogRhythmSearch.Summary.Quantity -ge 1) {
+                New-PIELogger -logSev "i" -Message "LogRhythm API - Add LogRhythm Search summary note to case" -LogFile $runLog -PassThru
+                $LrSearchSummary = $(Format-PIESearchSummary -ReportEvidence $ReportEvidence)
+                $NoteStatus = Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text $LrSearchSummary.Substring(0,[System.Math]::Min(20000, $LrSearchSummary.Length)) -PassThru
+                if ($NoteStatus.Error) {
+                    New-PIELogger -logSev "e" -Message "LogRhythm API - Unable to add LogRhythm Search summary note to case." -LogFile $runLog -PassThru
+                    New-PIELogger -logSev "d" -Message "LogRhythm API - Code: $($NoteStatus.Error.Code) Note: $($NoteStatus.Error.Note)" -LogFile $runLog -PassThru
+                }
+            }
+
+            # Add Link/Attachment Summary as second Case note
+            if ($CaseEvidenceSummaryNote) {
+                $NoteStatus = Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text $CaseEvidenceSummaryNote.Substring(0,[System.Math]::Min(20000, $CaseEvidenceSummaryNote.Length)) -PassThru
+                if ($NoteStatus.Error) {
+                    New-PIELogger -logSev "e" -Message "LogRhythm API - Unable to add CaseEvidenceSummaryNote to LogRhythm Case." -LogFile $runLog -PassThru
+                    New-PIELogger -logSev "d" -Message "LogRhythm API - Code: $($NoteStatus.Error.Code) Note: $($NoteStatus.Error.Note)" -LogFile $runLog -PassThru
+                }
+            }
+
 
             # Add overall summary as last, top most case note.
-            $CaseSummaryNote = Format-PIECaseSummary -ReportEvidence $ReportEvidence
             Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text $CaseSummaryNote.Substring(0,[System.Math]::Min(20000, $CaseSummaryNote.Length))
 
+            # If we have Log Results, add these to the case.
+            if (($($ReportEvidence.LogRhythmSearch.Status) -like "Completed*") -and ($($ReportEvidence.LogRhythmSearch.Status) -notlike "Completed: No Results")) {
+                Add-LrLogsToCase -Id $ReportEvidence.LogRhythmCase.Number -Note "Message trace matching sender or subject of the submitted e-mail message." -IndexId $($ReportEvidence.LogRhythmSearch.TaskId)
+            }
+
             $ReportEvidence.LogRhythmCase.Details = Get-LrCaseById -Id $ReportEvidence.LogRhythmCase.Number
+            # End Section - LogRhythm Case Output
+        }
 
-            $Reports.Add($ReportEvidence)
 
-            # Write PIE Report Json object out to Case as Evidence
+
+# ================================================================================
+# Case Closeout
+# ================================================================================
+
+
+
+        $Reports.Add($ReportEvidence)
+
+        # Write PIE Report Json object out to Case as Evidence
+        New-PIELogger -logSev "i" -Message "Case Json - Writing ReportEvidence to $($caseFolder)$($caseId)\Case_Report.json" -LogFile $runLog -PassThru
+        Try {
             $ReportEvidence | ConvertTo-Json -Depth 50 | Out-File -FilePath "$caseFolder$caseID\Case_Report.json"
-            
-            # Write TXT Report as Evidence
-            $CaseFile = "\Case_Report.txt"
+        } Catch {
+            New-PIELogger -logSev "e" -Message "Case Json - Unable to write ReportEvidence to $($caseFolder)$($caseId)\Case_Report.json" -LogFile $runLog -PassThru
+        }
+        
+        
+        # Write TXT Report as Evidence
+        New-PIELogger -logSev "s" -Message "Case File - Begin - Writing details to Case File." -LogFile $runLog -PassThru
+        New-PIELogger -logSev "i" -Message "Case File - Writing to $($caseFolder)$($caseId)\Case_Report.txt" -LogFile $runLog -PassThru
+        $CaseFile = "\Case_Report.txt"
+        Try {
             $CaseSummaryNote | Out-File -FilePath $caseFolder$caseID$CaseFile
-            $CaseEvidenceSummaryNote | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+        } Catch {
+            New-PIELogger -logSev "e" -Message "Case File - Unable to write to $($caseFolder)$($caseId)\Case_Report.txt" -LogFile $runLog -PassThru
+        }
+        $CaseEvidenceSummaryNote | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
 
-            $EvidenceSeperator = "-----------------------------------------------`r`n"
-            # Add Link plugin output to TXT Case
-            ForEach ($UrlDetails in $ReportEvidence.EvaluationResults.Links.Details) {
-                if ($shodan) {
-                    if ($UrlDetails.Plugins.Shodan) {
-                        $EvidenceSeperator  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                        $($UrlDetails.Plugins.Shodan | Format-ShodanTextOutput) | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                    }
-                }
-                if ($urlscan) {
-                    if ($UrlDetails.Plugins.urlscan) {
-                        $EvidenceSeperator  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                        $($UrlDetails.Plugins.urlscan | Format-UrlscanTextOutput)  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                    }
-                }
-                if ($virusTotal) {
-                    if ($UrlDetails.Plugins.VirusTotal) {
-                        $EvidenceSeperator  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                        $($UrlDetails.Plugins.VirusTotal | Format-VTTextOutput)  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                    }
-                }
-            }
-            # Add Attachment plugin output to Case
-            ForEach ($AttachmentDetails in $ReportEvidence.EvaluationResults.Attachments) {
-                if ($virusTotal) {
+        if ($CaseEvidenceHeaderSummary) {
+            New-PIELogger -logSev "i" -Message "Case File - Copying e-mail header details summary to Case File" -LogFile $runLog -PassThru
+            $CaseEvidenceHeaderSummary | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+        }
+
+        New-PIELogger -logSev "i" -Message "Case File - Appending URL Details to Case File." -LogFile $runLog -PassThru
+        $EvidenceSeperator = "-----------------------------------------------`r`n"
+        # Add Link plugin output to TXT Case
+        ForEach ($UrlDetails in $ReportEvidence.EvaluationResults.Links.Details) {
+            if ($shodan) {
+                if ($UrlDetails.Plugins.Shodan) {
                     $EvidenceSeperator  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                    if ($AttachmentDetails.Plugins.VirusTotal.Status) {
-                        $($AttachmentDetails.Plugins.VirusTotal.Results | Format-VTTextOutput)  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
-                    }
+                    $($UrlDetails.Plugins.Shodan | Format-ShodanTextOutput) | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+                }
+            }
+            if ($urlscan) {
+                if ($UrlDetails.Plugins.urlscan) {
+                    $EvidenceSeperator  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+                    $($UrlDetails.Plugins.urlscan | Format-UrlscanTextOutput)  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+                }
+            }
+            if ($virusTotal) {
+                if ($UrlDetails.Plugins.VirusTotal) {
+                    $EvidenceSeperator  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+                    $($UrlDetails.Plugins.VirusTotal | Format-VTTextOutput)  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
                 }
             }
         }
 
-        #Cleanup Variables prior to next evaluation
-        New-PIELogger -logSev "s" -Message "Resetting analysis varaiables" -LogFile $runLog -PassThru
-        $attachmentFull = $null
-        $attachment = $null
-        $attachments = $null
-        $caseID = $null
-    }
+        # Add Attachment plugin output to Case
+        New-PIELogger -logSev "i" -Message "Case File - Appending Attachment Details to Case File." -LogFile $runLog -PassThru
+        ForEach ($AttachmentDetails in $ReportEvidence.EvaluationResults.Attachments) {
+            if ($virusTotal) {
+                $EvidenceSeperator  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+                if ($AttachmentDetails.Plugins.VirusTotal.Status) {
+                    $($AttachmentDetails.Plugins.VirusTotal.Results | Format-VTTextOutput)  | Out-File -FilePath $caseFolder$caseID$CaseFile -Append
+                }
+            }
+        }
+        New-PIELogger -logSev "s" -Message "Case File - End - Writing details to Case File." -LogFile $runLog -PassThru
 
-    # Move items from inbox to target folders
-    ForEach ($CompletedItem in $FolderDestCompleted) {
-        try { 
-            $Inbox.MoveTo($CompletedItem,$InboxCompleted,$MailClientCancelToken) | Out-Null
-        } catch { 
-            $_ 
+        New-PIELogger -logSev "i" -Message "Phish Log - Writing details to Phish Log." -LogFile $runLog -PassThru
+        Try {
+            $PhishLogContent = "$($ReportEvidence.Meta.GUID),$($ReportEvidence.Meta.Timestamp),$($ReportEvidence.ReportSubmission.MessageId),$($ReportEvidence.EvaluationResults.Sender),$($ReportEvidence.ReportSubmission.Sender)"
+            $PhishLogContent | Out-File -FilePath $PhishLog -Append
+        } Catch {
+            New-PIELogger -logSev "e" -Message "Phish Log - Unable to write to $PhishLog" -LogFile $runLog -PassThru
         }
     }
 
-    ForEach ($SkippedItem in $FolderDestSkipped) {
-        try { 
-            $Inbox.MoveTo($SkippedItem,$InboxSkipped,$MailClientCancelToken) | Out-Null
-        } catch { 
-            $_ 
-        }
+    #Cleanup Variables prior to next evaluation
+    New-PIELogger -logSev "i" -Message "Resetting analysis varaiables" -LogFile $runLog -PassThru
+    $attachmentFull = $null
+    $attachment = $null
+    $attachments = $null
+    $caseID = $null
+}
+
+# Move items from inbox to target folders
+New-PIELogger -logSev "s" -Message "Begin - Mailbox Cleanup" -LogFile $runLog -PassThru
+ForEach ($CompletedItem in $FolderDestCompleted) {
+    try { 
+        $Inbox.MoveTo($CompletedItem,$InboxCompleted,$MailClientCancelToken) | Out-Null
+    } catch { 
+        New-PIELogger -logSev "e" -Message "$($_)" -LogFile $runLog -PassThru
     }
 }
+
+ForEach ($SkippedItem in $FolderDestSkipped) {
+    try { 
+        $Inbox.MoveTo($SkippedItem,$InboxSkipped,$MailClientCancelToken) | Out-Null
+    } catch { 
+        New-PIELogger -logSev "e" -Message "$($_)" -LogFile $runLog -PassThru
+    }
+}
+New-PIELogger -logSev "s" -Message "End - Mailbox Cleanup" -LogFile $runLog -PassThru
+
 # ================================================================================
 # LOG ROTATION
 # ================================================================================
@@ -1041,11 +1235,10 @@ function Reset-Log {
 }
 
 New-PIELogger -logSev "s" -Message "Begin Reset-Log block" -LogFile $runLog -PassThru
-Reset-Log -fileName $phishLog -filesize 25mb -logcount 10
-Reset-Log -fileName $runLog -filesize 50mb -logcount 10
+Reset-Log -fileName $phishLog -filesize 25mb -logcount 10 | Out-Null
+Reset-Log -fileName $runLog -filesize 50mb -logcount 10 | Out-Null
 New-PIELogger -logSev "s" -Message "End Reset-Log block" -LogFile $runLog -PassThru
 New-PIELogger -logSev "i" -Message "Close mailbox connection" -LogFile $runLog -PassThru
 # Kill Office365 Session and Clear Variables
 $MailClient.Disconnect($true)
 New-PIELogger -logSev "s" -Message "PIE Execution Completed" -LogFile $runLog -PassThru
-return $EvaluationResults
