@@ -45,15 +45,15 @@ $ErrorActionPreference= 'silentlycontinue'
 
 # Choose how to handle credentials - set the desired flag to $true
 #     Be sure to set credentials or xml file location below
-$EncodedXMLCredentials = $false
+$EncodedXMLCredentials = $true
 
 # XML Configuration - store credentials in an encoded XML (best option)
 if ( $EncodedXMLCredentials ) {
     #
     # To generate the XML:
-    #      PS C:\> Get-Credential | Export-Clixml Service-Account_cred.xml
+    #      PS E:\PIE\> Get-Credential | Export-Clixml Service-Account_cred.xml
     #
-    $CredentialsFile = "C:\PIE\PIE_cred.xml"
+    $CredentialsFile = "E:\PIE\PIE_cred.xml"
     $PSCredential = Import-CliXml -Path $CredentialsFile 
 } else {
     # Plain Text Credentials (not recommended)
@@ -66,6 +66,9 @@ $SocMailbox = "phish@phishstick.io"
 
 # MailServer for IMAP Connection
 $MailServer = "outlook.office365.com"
+
+# Gmail:  imap.gmail.com
+# Office 365: outlook.office365.com
 
 # TCP Port for IMAP Connection
 $MailServerPort = 993
@@ -85,7 +88,7 @@ $LrCaseTags = ("PIE", "TAG2")
 $LrCaseCollaborators = ("example, user") 
 
 # Playbook Assignment based on Playbook Name
-$LrCasePlaybook = ("Phishing")
+$LrCasePlaybook = ("Phishing", "SOC Playbook")
 
 # Enable LogRhythm log search
 $LrLogSearch = $true
@@ -434,7 +437,6 @@ if ($InboxNewMail.count -eq 0) {
             LogRhythmSearch = [PSCustomObject]@{
                 TaskID = $null
                 Status = $null
-                Results = $null
                 Summary = [PSCustomObject]@{
                     Quantity = $null
                     Recipient = $null
@@ -443,21 +445,18 @@ if ($InboxNewMail.count -eq 0) {
                 }
                 Details = [PSCustomObject]@{
                     SendAndSubject = [PSCustomObject]@{ 
-                        Logs = $null
                         Sender = $null
                         Subject = $null
                         Recipients = $null
                         Quantity = $null
                     }
                     Sender = [PSCustomObject]@{ 
-                        Logs = $null
                         Sender = $null
                         Recipients = $null
                         Subjects = $null
                         Quantity = $null
                     }
                     Subject = [PSCustomObject]@{ 
-                        Logs = $null
                         Senders = $null
                         Recipients = $null
                         Subject = $null
@@ -840,40 +839,39 @@ if ($InboxNewMail.count -eq 0) {
                 } until ($SearchStatus.TaskStatus -like "Completed*")
                 New-PIELogger -logSev "i" -Message "LogRhythm Search API - TaskId: $($LrSearchTask.TaskId) Status: $($SearchStatus.TaskStatus)" -LogFile $runLog -PassThru
                 $ReportEvidence.LogRhythmSearch.TaskId = $LrSearchTask.TaskId
-                $ReportEvidence.LogRhythmSearch.Results = $SearchStatus
+                $LrSearchResults = $SearchStatus
                 $ReportEvidence.LogRhythmSearch.Status = $SearchStatus.TaskStatus
             } else {
                 New-PIELogger -logSev "s" -Message "LogRhythm Search API - Unable to successfully initiate " -LogFile $runLog -PassThru
-                $ReportEvidence.LogRhythmSearch.Results = $LrSearchTask
+                $ReportEvidence.LogRhythmSearch.Status = "Error"
             }
 
             if ($($ReportEvidence.LogRhythmSearch.Status) -like "Completed*" -and ($($ReportEvidence.LogRhythmSearch.Status) -notlike "Completed: No Results")) {
-                $LogResults = $ReportEvidence.LogRhythmSearch.Results.Items
+                $LrSearchResultLogs = $LrSearchResults.Items
                 
                 # Build summary:
-                $ReportEvidence.LogRhythmSearch.Summary.Quantity = $LogResults.count
-                $ReportEvidence.LogRhythmSearch.Summary.Recipient = $LogResults | Select-Object -ExpandProperty recipient -Unique
-                $ReportEvidence.LogRhythmSearch.Summary.Sender = $LogResults | Select-Object -ExpandProperty sender -Unique
-                $ReportEvidence.LogRhythmSearch.Summary.Subject = $LogResults | Select-Object -ExpandProperty subject -Unique
-
+                $ReportEvidence.LogRhythmSearch.Summary.Quantity = $LrSearchResultLogs.count
+                $ReportEvidence.LogRhythmSearch.Summary.Recipient = $LrSearchResultLogs | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Summary.Sender = $LrSearchResultLogs | Select-Object -ExpandProperty sender -Unique
+                $ReportEvidence.LogRhythmSearch.Summary.Subject = $LrSearchResultLogs | Select-Object -ExpandProperty subject -Unique
                 # Establish Unique Sender & Subject log messages
-                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs = $LogResults | Where-Object {$_.sender -like $($ReportEvidence.EvaluationResults.Sender) -and $_.subject -like $($ReportEvidence.EvaluationResults.Subject.Original)}
-                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Quantity = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs.count
-                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Recipients = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs | Select-Object -ExpandProperty recipient -Unique
-                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Subject = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs | Select-Object -ExpandProperty subject -Unique
-                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Sender = $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs | Select-Object -ExpandProperty sender -Unique
+                $LrSendAndSubject = $LrSearchResultLogs | Where-Object {$_.sender -like $($ReportEvidence.EvaluationResults.Sender) -and $_.subject -like $($ReportEvidence.EvaluationResults.Subject.Original)}
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Quantity = $LrSendAndSubject.count
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Recipients = $LrSendAndSubject | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Subject = $LrSendAndSubject | Select-Object -ExpandProperty subject -Unique
+                $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Sender = $LrSendAndSubject | Select-Object -ExpandProperty sender -Unique
                 # Establish Unique Sender log messages
-                $ReportEvidence.LogRhythmSearch.Details.Sender.Logs = $LogResults | Where-Object {$_.sender -like $($ReportEvidence.EvaluationResults.Sender) -and $_ -notcontains $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs}
-                $ReportEvidence.LogRhythmSearch.Details.Sender.Quantity = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs.count
-                $ReportEvidence.LogRhythmSearch.Details.Sender.Recipients = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs | Select-Object -ExpandProperty recipient -Unique
-                $ReportEvidence.LogRhythmSearch.Details.Sender.Subjects = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs | Select-Object -ExpandProperty subject -Unique
-                $ReportEvidence.LogRhythmSearch.Details.Sender.Sender = $ReportEvidence.LogRhythmSearch.Details.Sender.Logs | Select-Object -ExpandProperty sender -Unique
+                $LrSender = $LrSearchResultLogs | Where-Object {$_.sender -like $($ReportEvidence.EvaluationResults.Sender) -and $_ -notcontains $LrSendAndSubject}
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Quantity = $LrSender.count
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Recipients = $LrSender | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Subjects = $LrSender | Select-Object -ExpandProperty subject -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Sender.Sender = $LrSender | Select-Object -ExpandProperty sender -Unique
                 # Establish Unique Subject log messages
-                $ReportEvidence.LogRhythmSearch.Details.Subject.Logs = $LogResults | Where-Object {$_.subject -like $($ReportEvidence.EvaluationResults.Subject.Original) -and $_ -notcontains $ReportEvidence.LogRhythmSearch.Details.Sender.Logs -and $_ -notcontains $ReportEvidence.LogRhythmSearch.Details.SendAndSubject.Logs}
-                $ReportEvidence.LogRhythmSearch.Details.Subject.Quantity = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs.count
-                $ReportEvidence.LogRhythmSearch.Details.Subject.Recipients = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs | Select-Object -ExpandProperty recipient -Unique
-                $ReportEvidence.LogRhythmSearch.Details.Subject.Subject = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs | Select-Object -ExpandProperty subject -Unique
-                $ReportEvidence.LogRhythmSearch.Details.Subject.Senders = $ReportEvidence.LogRhythmSearch.Details.Subject.Logs | Select-Object -ExpandProperty sender -Unique
+                $LrSubject = $LrSearchResultLogs | Where-Object {$_.subject -like $($ReportEvidence.EvaluationResults.Subject.Original) -and $_ -notcontains $LrSender -and $_ -notcontains $LrSendAndSubject}
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Quantity = $LrSubject.count
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Recipients = $LrSubject | Select-Object -ExpandProperty recipient -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Subject = $LrSubject | Select-Object -ExpandProperty subject -Unique
+                $ReportEvidence.LogRhythmSearch.Details.Subject.Senders = $LrSubject | Select-Object -ExpandProperty sender -Unique
             }
             New-PIELogger -logSev "s" -Message "LogRhythm API - End Log Search" -LogFile $runLog -PassThru
         }
@@ -953,23 +951,41 @@ if ($InboxNewMail.count -eq 0) {
             }
 
             # Adding and assigning other users
-            New-PIELogger -logSev "i" -Message "LogRhythm API - Assigning case collaborators" -LogFile $runLog -PassThru
+            
             if ( $LrCaseCollaborators ) {
-                Add-LrCaseCollaborators -Id $ReportEvidence.LogRhythmCase.Number -Names $LrCaseCollaborators
+                New-PIELogger -logSev "s" -Message "Begin - LogRhythm Case Collaborators Block" -LogFile $runLog -PassThru
+                ForEach ($LrCaseCollaborator in $LrCaseCollaborators) {
+                    $LrCollabortorStatus = Get-LrUsers -Name $LrPlaybook -Exact
+                    if ($LrCollabortorStatus) {
+                        New-PIELogger -logSev "i" -Message "LogRhythm API - Adding Collaborator:$LrCaseCollaborator to Case:$($ReportEvidence.LogRhythmCase.Number)" -LogFile $runLog -PassThru
+                        Add-LrCaseCollaborators -Id $ReportEvidence.LogRhythmCase.Number -Names $LrCaseCollaborator
+                    } else {
+                        New-PIELogger -logSev "e" -Message "LogRhythm API - Collaborator:$LrCaseCollaborator not found or not accessible due to permissions." -LogFile $runLog -PassThru
+                    }
+                }        
+                New-PIELogger -logSev "s" -Message "End - LogRhythm Case Collaborators Block" -LogFile $runLog -PassThru      
             } else {
-                New-PIELogger -logSev "i" -Message "LogRhythm API - Case Collaborators Omision - Collaborators not defined" -LogFile $runLog -PassThru
+                New-PIELogger -logSev "d" -Message "LogRhythm API - Collaborators Omision - Collaborators not defined" -LogFile $runLog -PassThru
             }
 
             # Add case playbook if playbook has been defined.
             if ($LrCasePlaybook) {
-                New-PIELogger -logSev "s" -Message "Begin LogRhythm Playbook Block" -LogFile $runLog -PassThru
+                New-PIELogger -logSev "s" -Message "Begin - LogRhythm Playbook Block" -LogFile $runLog -PassThru
                 ForEach ($LrPlaybook in $LrCasePlaybook) {
-                    New-PIELogger -logSev "i" -Message "LogRhythm API - Adding Playbook:$LrPlaybookto Case:$($ReportEvidence.LogRhythmCase.Number)" -LogFile $runLog -PassThru
-                    Add-LrCasePlaybook -Id $ReportEvidence.LogRhythmCase.Number -Playbook $LrPlaybook
+                    $LrPlayBookStatus = Get-LrPlaybooks -Name $LrPlaybook -Exact
+                    if ($LrPlayBookStatus.Code -eq 404) {
+                        New-PIELogger -logSev "e" -Message "LogRhythm API - Playbook:$LrPlaybook not found or not accessible due to permissions." -LogFile $runLog -PassThru
+                    } else {
+                        New-PIELogger -logSev "i" -Message "LogRhythm API - Adding Playbook:$LrPlaybook to Case:$($ReportEvidence.LogRhythmCase.Number)" -LogFile $runLog -PassThru
+                        $AddLrPlaybook = Add-LrCasePlaybook -Id $ReportEvidence.LogRhythmCase.Number -Playbook $LrPlaybook
+                        if ($AddLrPlaybook) {
+                            New-PIELogger -logSev "e" -Message "LogRhythm API - Playbook:$LrPlaybook Error:$($AddLrPlaybook.Note)" -LogFile $runLog -PassThru
+                        }
+                    }
                 }
-                New-PIELogger -logSev "s" -Message "End LogRhythm Playbook Block" -LogFile $runLog -PassThru
+                New-PIELogger -logSev "s" -Message "End - LogRhythm Playbook Block" -LogFile $runLog -PassThru
             } else {
-                New-PIELogger -logSev "i" -Message "LogRhythm API - Playbook Omision - Playbook not defined" -LogFile $runLog -PassThru
+                New-PIELogger -logSev "d" -Message "LogRhythm API - Playbook Omision - Playbooks not defined" -LogFile $runLog -PassThru
             }
 
 
@@ -983,7 +999,7 @@ if ($InboxNewMail.count -eq 0) {
                 }
                 if ($urlscan) {
                     if ($UrlDetails.Plugins.urlscan) {
-                        $CasePluginUrlScanNote = $UrlDetails.Plugins.urlscan | Format-UrlscanTextOutput
+                        $CasePluginUrlScanNote = $UrlDetails.Plugins.urlscan | Format-UrlscanTextOutput -Type "summary"
                         Add-LrNoteToCase -id $ReportEvidence.LogRhythmCase.Number -Text $($CasePluginUrlScanNote).subString(0, [System.Math]::Min(20000, $CasePluginUrlScanNote.Length))
                     }
                 }
@@ -1008,7 +1024,7 @@ if ($InboxNewMail.count -eq 0) {
             # Copy E-mail Message text body to case
             New-PIELogger -logSev "i" -Message "LogRhythm API - Copying e-mail body text to case" -LogFile $runLog -PassThru
             if ( $ReportEvidence.EvaluationResults.Body.Original ) {
-                $DefangBody = $ReportEvidence.EvaluationResults.Body.Modified.subString(0, [System.Math]::Min(19910, $ReportEvidence.EvaluationResults.Body.Modified.Length)).Replace('<http','<hxxp')
+                $DefangBody = $ReportEvidence.EvaluationResults.Body.Original.subString(0, [System.Math]::Min(19900, $ReportEvidence.EvaluationResults.Body.Original.Length)).Replace('<http','<hxxp')
                 $NoteStatus = Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text "=== Reported Message Body ===`r`n--- BEGIN ---$DefangBody`r`n--- END ---" -PassThru
                 if ($NoteStatus.Error) {
                     New-PIELogger -logSev "e" -Message "LogRhythm API - Unable to add ReportEvidence.EvaluationResults.Body to LogRhythm Case." -LogFile $runLog -PassThru
@@ -1064,10 +1080,6 @@ if ($InboxNewMail.count -eq 0) {
 # Case Closeout
 # ================================================================================
 
-
-
-        $Reports.Add($ReportEvidence)
-
         # Write PIE Report Json object out to Case as Evidence
         New-PIELogger -logSev "i" -Message "Case Json - Writing ReportEvidence to $($caseFolder)$($caseId)\Case_Report.json" -LogFile $runLog -PassThru
         Try {
@@ -1075,8 +1087,16 @@ if ($InboxNewMail.count -eq 0) {
         } Catch {
             New-PIELogger -logSev "e" -Message "Case Json - Unable to write ReportEvidence to $($caseFolder)$($caseId)\Case_Report.json" -LogFile $runLog -PassThru
         }
-        
-        
+
+        if ($LrSearchResultLogs) {
+            New-PIELogger -logSev "i" -Message "Case Logs - Writing Search Result logs to $($caseFolder)$($caseId)\Case_Logs.csv" -LogFile $runLog -PassThru
+            Try {
+                $LrSearchResultLogs | Export-Csv -Path "$caseFolder$caseID\Case_Logs.csv" -Force -NoTypeInformation
+            } Catch {
+                New-PIELogger -logSev "e" -Message "Case Logs - Unable to write Search Result logs to $($caseFolder)$($caseId)\Case_Logs.csv" -LogFile $runLog -PassThru
+            }
+        }
+         
         # Write TXT Report as Evidence
         New-PIELogger -logSev "s" -Message "Case File - Begin - Writing details to Case File." -LogFile $runLog -PassThru
         New-PIELogger -logSev "i" -Message "Case File - Writing to $($caseFolder)$($caseId)\Case_Report.txt" -LogFile $runLog -PassThru
