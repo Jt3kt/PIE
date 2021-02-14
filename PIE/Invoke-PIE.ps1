@@ -22,7 +22,7 @@ INSTALL:
 USAGE:
 
     Configure as a scheduled task to run every 15-minutes:
-        C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -command "& 'C:\PIE_INSTALL_DIR\Invoke-PIE.ps1'"
+        C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -command "& 'E:\PIE_INSTALL_DIR\Invoke-PIE.ps1'"
 
 #>
 
@@ -1025,7 +1025,7 @@ if ($InboxNewMail.count -eq 0) {
             New-PIELogger -logSev "i" -Message "LogRhythm API - Copying e-mail body text to case" -LogFile $runLog -PassThru
             if ( $ReportEvidence.EvaluationResults.Body.Original ) {
                 $DefangBody = $ReportEvidence.EvaluationResults.Body.Original.subString(0, [System.Math]::Min(19900, $ReportEvidence.EvaluationResults.Body.Original.Length)).Replace('<http','<hxxp')
-                $NoteStatus = Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text "=== Reported Message Body ===`r`n--- BEGIN ---$DefangBody`r`n--- END ---" -PassThru
+                $NoteStatus = Add-LrNoteToCase -Id $ReportEvidence.LogRhythmCase.Number -Text "=== Reported Message Body ===`r`n--- BEGIN ---`r`n$DefangBody`r`n--- END ---" -PassThru
                 if ($NoteStatus.Error) {
                     New-PIELogger -logSev "e" -Message "LogRhythm API - Unable to add ReportEvidence.EvaluationResults.Body to LogRhythm Case." -LogFile $runLog -PassThru
                     New-PIELogger -logSev "d" -Message "LogRhythm API - Code: $($NoteStatus.Error.Code) Note: $($NoteStatus.Error.Note)" -LogFile $runLog -PassThru
